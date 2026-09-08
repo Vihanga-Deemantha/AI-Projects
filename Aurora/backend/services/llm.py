@@ -77,3 +77,22 @@ def ping() -> bool:
         temperature=0,
     )
     return True
+
+
+def build_messages(system_prompt: str, history: list[dict]) -> list[dict]:
+    """
+    Assembles the full messages list for the Groq API.
+
+    Args:
+        system_prompt: The assembled system prompt from personalities.build_system_prompt().
+        history: List of {"role": "user"|"assistant", "content": str} dicts,
+                 ordered oldest-first (as fetched from the DB).
+
+    Returns:
+        Complete messages list ready to pass directly to chat().
+
+    Example:
+        messages = build_messages(system_prompt, history)
+        reply = chat(messages, max_tokens=150)
+    """
+    return [{"role": "system", "content": system_prompt}, *history]
