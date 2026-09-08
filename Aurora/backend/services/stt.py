@@ -1,22 +1,102 @@
 """
-Speech-to-Text service wrapper — faster-whisper.
-Phase 0: stub only. Fully implemented in Phase 1.
+Speech-to-Text service — faster-whisper.
+
+Model is lazy-loaded on the first call to avoid slowing down FastAPI startup.
+The same model instance is reused for all subsequent requests (singleton pattern).
 """
+import time
+from typing import Optional
+
+from faster_whisper import WhisperModel
+
+from backend.config import WHISPER_COMPUTE_TYPE, WHISPER_DEVICE, WHISPER_MODEL_SIZE
+
+_model: Optional[WhisperModel] = None
+
+
+def _get_model() -> WhisperModel:
+    """
+    Returns the shared WhisperModel, loading it on the first call.
+    Downloads the model weights (~150MB for base.en) on first run — cached afterward.
+    """
+    global _model
+    if _model is None:
+        print(
+            f"[STT] Loading Whisper model: {WHISPER_MODEL_SIZE} "
+            f"({WHISPER_DEVICE}/{WHISPER_COMPUTE_TYPE})..."
+        )
+        _model = WhisperModel(
+            WHISPER_MODEL_SIZE,
+            device=WHISPER_DEVICE,
+            compute_type=WHISPER_COMPUTE_TYPE,
+        )
+        print("[STT] Model loaded and ready.")
+    return _model
 
 
 def transcribe(audio_path: str) -> dict:
     """
-    Transcribe audio file.
+    Transcribe an audio file to text with word-level timestamps.
+
+    Args:
+        audio_path: Absolute path to the audio file (.wav, .mp3, etc.)
 
     Returns:
         {
-            "text": str,
-            "words": [{"word": str, "start": float, "end": float, "probability": float}],
-            "duration": float,
-            "avg_logprob": float,
+            "text":        str    — full transcript
+            "duration":    float  — audio length in seconds
+            "words":       list   — [{word, start, end, probability}, ...]
+            "avg_logprob": float  — avg ASR log-probability (pronunciation proxy)
+            "latency_ms":  float  — time taken to transcribe in ms
         }
 
-    Phase 0: raises NotImplementedError.
-    Phase 1: implemented with faster-whisper.
+    Notes:
+        - word_timestamps=True is required for Phase 4 (fluency analysis).
+        - vad_filter=True strips leading/trailing silence, improving accuracy.
+        - Forcing language="en" is much faster than auto-detection.
+        - The generator returned by transcribe() is materialised here so callers
+          always receive a plain dict, never a lazy iterator.
     """
-    raise NotImplementedError("STT service not yet implemented — see Phase 1")
+    model = _get_model()
+    t0 = time.perf_counter()
+
+    segments, info = model.transcribe(
+        audio_path,
+        word_timestamps=True,
+        language="en",
+        vad_filter=True,
+        vad_parameters=dict(min_silence_duration_ms=300),
+    )
+
+    # Materialise the lazy generator — must iterate to get results
+    all_words = []
+    full_text_parts = []
+    total_logprob = 0.0
+    segment_count = 0
+
+    for segment in segments:
+        text = segment.text.strip()
+        if text:
+            full_text_parts.append(text)
+        total_logprob += segment.avg_logprob
+        segment_count += 1
+
+        if segment.words:
+            for word in segment.words:
+                all_words.append({
+                    "word": word.word,
+                    "start": round(word.start, 3),
+                    "end": round(word.end, 3),
+                    "probability": round(word.probability, 3),
+                })
+
+    latency_ms = (time.perf_counter() - t0) * 1000
+    avg_logprob = (total_logprob / segment_count) if segment_count > 0 else 0.0
+
+    return {
+        "text": " ".join(full_text_parts).strip(),
+        "duration": round(info.duration, 2),
+        "words": all_words,
+        "avg_logprob": round(avg_logprob, 4),
+        "latency_ms": round(latency_ms, 1),
+    }

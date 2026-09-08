@@ -2,25 +2,27 @@
 AURA — AI English Speaking Coach
 FastAPI application entry point.
 """
+# pyrefly: ignore [missing-import]
 from contextlib import asynccontextmanager
+# pyrefly: ignore [missing-import]
 from fastapi import FastAPI
+# pyrefly: ignore [missing-import]
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import ENVIRONMENT
 from backend.database import engine, Base
-from backend.routers import health
+from backend.routers import health, conversation
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Runs at startup and shutdown.
-    Creates all database tables on first run (development convenience).
+    Creates all DB tables on first run (idempotent — safe to run repeatedly).
     In production, use Alembic migrations instead.
     """
-    # Create tables if they don't exist (idempotent — safe to run repeatedly)
     Base.metadata.create_all(bind=engine)
-    print("✅  Database tables verified / created")
+    print("[Startup] Database tables verified / created")
     yield
     # (cleanup on shutdown goes here if needed)
 
@@ -48,6 +50,4 @@ app.add_middleware(
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(health.router)
-
-# Phase 1 routers will be added here:
-# app.include_router(conversation.router, prefix="/api")
+app.include_router(conversation.router)
