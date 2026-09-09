@@ -20,6 +20,9 @@ import tempfile
 import time
 import uuid
 import wave
+import queue
+import threading
+import json
 
 # pyrefly: ignore [missing-import]
 import numpy as np
@@ -148,7 +151,14 @@ def play_audio(wav_bytes: bytes):
 
     audio_int16 = np.frombuffer(frames, dtype=np.int16)
     audio_float = audio_int16.astype(np.float32) / 32767.0
-    sd.play(audio_float, samplerate=rate, blocking=True)
+    
+    # Windows sounddevice quirk: stream closes instantly when sd.play returns,
+    # often dropping the last ~100-300ms of audio still in the OS buffer.
+    # We pad the end with 0.3s of silence so only the silence gets dropped.
+    silence_padding = np.zeros(int(rate * 0.3), dtype=np.float32)
+    padded_audio = np.concatenate([audio_float, silence_padding])
+    
+    sd.play(padded_audio, samplerate=rate, blocking=True)
 
 
 def check_server():
@@ -197,26 +207,102 @@ def start_session() -> str:
     return data["conversation_id"]
 
 
-def send_audio(conversation_id: str, wav_path: str) -> dict:
-    """Sends a WAV file to the /message endpoint. Returns the response JSON."""
+def send_audio_streaming(conversation_id: str, wav_path: str) -> dict:
+    """
+    Sends audio to the streaming endpoint and plays chunks as they arrive.
+    Uses a producer-consumer pattern:
+        - Main thread: receives NDJSON lines, decodes audio, puts in queue
+        - Playback thread: takes chunks from queue, plays them sequentially
+    
+    Returns:
+        {
+            "transcript": str,
+            "full_reply": str,
+            "timings": dict,
+        }
+    """
+    audio_queue = queue.Queue()
+    DONE_SENTINEL = None
+    result = {}
+
+    def playback_worker():
+        """Plays WAV chunks from the queue in order."""
+        while True:
+            item = audio_queue.get()
+            if item is DONE_SENTINEL:
+                break
+            wav_bytes, chunk_text = item
+            # We don't print here because we print as soon as it's received
+            # so the user can read along faster than speech
+            play_audio(wav_bytes)
+            # Brief natural pause between sentences — prevents robotic run-on sound
+            # Increased to 0.25s for a more authentic break between thoughts
+            time.sleep(0.25)
+
+    # Start playback thread
+    player = threading.Thread(target=playback_worker, daemon=True)
+    player.start()
+
     with open(wav_path, "rb") as f:
         resp = requests.post(
-            f"{API_BASE}/api/conversation/message",
+            f"{API_BASE}/api/conversation/message-stream",
             data={"conversation_id": conversation_id},
             files={"audio_file": ("audio.wav", f, "audio/wav")},
-            timeout=180,   # 3 minutes — generous for first-run Whisper model download
+            stream=True,
+            timeout=180,
         )
-    resp.raise_for_status()
-    return resp.json()
+        resp.raise_for_status()
+
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            msg_type = msg.get("type")
+
+            if msg_type == "transcript":
+                print(f"\n  You  : {msg['text']}")
+                result["transcript"] = msg["text"]
+
+            elif msg_type == "audio_chunk":
+                wav_bytes = base64.b64decode(msg["data"])
+                audio_queue.put((wav_bytes, msg["text"]))
+
+                # First chunk: print it so user sees AURA's reply starting
+                if msg["index"] == 0:
+                    print(f"  AURA : {msg['text']}", end="", flush=True)
+                else:
+                    print(f" {msg['text']}", end="", flush=True)
+
+            elif msg_type == "done":
+                result["full_reply"] = msg.get("full_reply", "")
+                result["timings"] = msg.get("timings", {})
+                print()  # newline after AURA's text
+
+            elif msg_type == "error":
+                print(f"\n  [Error] {msg['message']}")
+                result["error"] = msg["message"]
+
+    # Signal playback thread to stop after all chunks drain
+    audio_queue.put(DONE_SENTINEL)
+    player.join()  # Wait for all audio to finish playing
+
+    return result
 
 
 def print_timings(timings: dict):
     """Prints a formatted latency breakdown."""
     print()
-    print(f"  STT   {timings.get('stt_ms', 0):>6.0f} ms  (speech recognition)")
-    print(f"  LLM   {timings.get('llm_ms', 0):>6.0f} ms  (language model)")
-    print(f"  TTS   {timings.get('tts_ms', 0):>6.0f} ms  (voice synthesis)")
-    print(f"  Total {timings.get('total_ms', 0):>6.0f} ms")
+    print(f"  STT         {timings.get('stt_ms') or 0:>6.0f} ms")
+    if "llm_ttfs_ms" in timings:
+        ttfs = timings.get('llm_ttfs_ms') or 0  # None when reply fit in flush
+        print(f"  LLM (1st s) {ttfs:>6.0f} ms  \u2190 time to first sentence")
+    else:
+        print(f"  LLM         {timings.get('llm_ms') or 0:>6.0f} ms")
+    print(f"  Total       {timings.get('total_ms') or 0:>6.0f} ms")
 
 
 # ── Main Conversation Loop ─────────────────────────────────────────────────────
@@ -247,20 +333,13 @@ if __name__ == "__main__":
             turn += 1
             print(f"[AURA] Processing turn {turn}...")
 
-            result = send_audio(conversation_id, wav_path)
+            result = send_audio_streaming(conversation_id, wav_path)
 
             if "error" in result:
                 print(f"[AURA] {result['error']}\n")
                 continue
 
-            print(f"\n  You  : {result['transcript']}")
-            print(f"  AURA : {result['reply_text']}")
-            print_timings(result["timings"])
-
-            # Play AURA's voice response
-            wav_bytes = base64.b64decode(result["reply_audio_b64"])
-            print("\n[AURA speaking...]")
-            play_audio(wav_bytes)
+            print_timings(result.get("timings", {}))
             print()
 
         except KeyboardInterrupt:

@@ -40,3 +40,15 @@ alembic/versions/__pycache__/
 AURA_implementation_plan.md
 AURA_phase0_plan.md
 AURA_phase1_plan.md
+walkthrough_1
+AURA_phase1b_plan.md
+
+# Voice Models
+voices/
+*.onnx
+*.onnx.json
+
+./voices
+
+en_US-lessac-medium.onnx 
+en_US-ryan-high.onnx

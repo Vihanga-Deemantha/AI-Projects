@@ -145,6 +145,8 @@ Guidelines:
   the correct form in your reply (without saying "you made an error"),
   but never more than once per session. Detailed corrections come separately.
 - Never break character to explain what you are doing.
+- CRITICAL: Always end your reply with a sentence-ending punctuation mark (. ! ?).
+  Never stop mid-sentence. Complete every sentence before ending your reply.
 """
 
 
