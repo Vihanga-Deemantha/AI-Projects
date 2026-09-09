@@ -4,7 +4,7 @@ These are NOT database models — they define the API contract.
 """
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 
 # ── Users ─────────────────────────────────────────────────────────────────────
@@ -56,6 +56,24 @@ class MessageResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── Analysis (LLM output validation) ────────────────────────────────────────────
+# Validates the JSON returned by the analysis LLM (services/analysis.py) before
+# it is written to the corrections table — the model's output is untrusted input.
+
+class CorrectionItem(BaseModel):
+    category: Literal["grammar", "vocabulary", "naturalness"]
+    subtype: str
+    original: str
+    correction: str
+    explanation: str
+    is_error: bool = True
+    severity: Literal["high", "medium", "low"] = "medium"
+
+
+class AnalysisResult(BaseModel):
+    corrections: list[CorrectionItem] = Field(default_factory=list)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────

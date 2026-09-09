@@ -14,7 +14,7 @@ GROQ_API_KEY: str = os.environ["GROQ_API_KEY"]  # Hard fail if missing
 
 # Two separate models: quality for conversation, speed for analysis
 LLM_CONVERSATION_MODEL: str = os.getenv("LLM_CONVERSATION_MODEL", "openai/gpt-oss-120b")
-LLM_ANALYSIS_MODEL: str = os.getenv("LLM_ANALYSIS_MODEL", "openai/gpt-oss-120b")
+LLM_ANALYSIS_MODEL: str = os.getenv("LLM_ANALYSIS_MODEL", "openai/gpt-oss-20b")
 
 # ── Database ─────────────────────────────────────────────────────────────────
 DATABASE_URL: str = os.environ["DATABASE_URL"]  # Hard fail if missing

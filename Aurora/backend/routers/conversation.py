@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 # pyrefly: ignore [missing-import]
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, BackgroundTasks
 # pyrefly: ignore [missing-import]
 from fastapi.responses import StreamingResponse
 # pyrefly: ignore [missing-import]
@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models.core import Conversation, Message, User
+from backend.services.analysis import run_async_analysis
 from backend.personalities import (
     DEFAULT_SCENARIO,
     DEFAULT_STYLE,
@@ -186,6 +187,7 @@ async def send_message(
 async def send_message_stream(
     conversation_id: str = Form(...),
     audio_file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
 ):
     """
@@ -253,6 +255,15 @@ async def send_message_stream(
         )
         db.add(user_msg)
         db.commit()
+
+        # ── Spawn async grammar/vocab analysis ────────────────────────────────
+        background_tasks.add_task(
+            run_async_analysis,
+            transcript=transcript,
+            message_id=user_msg.id,
+            conversation_id=conversation_id,
+            user_id=conversation.user_id,
+        )
 
         # ── Build LLM context ─────────────────────────────────────────────────
         history_rows = (

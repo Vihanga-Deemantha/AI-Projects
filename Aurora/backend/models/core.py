@@ -9,11 +9,7 @@ Tables:
 import uuid
 from datetime import datetime, timezone
 # pyrefly: ignore [missing-import]
-from sqlalchemy import (
-    String, Text, DateTime, ForeignKey,
-    # pyrefly: ignore [name-defined]
-    Enum as SAEnum, Boolean, Integer
-)
+from sqlalchemy import String, Text, DateTime, ForeignKey, Boolean, Integer
 # pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.database import Base
@@ -132,3 +128,44 @@ class Message(Base):
 
     def __repr__(self) -> str:
         return f"<Message id={self.id!r} role={self.role!r}>"
+
+
+# ── Corrections ───────────────────────────────────────────────────────────────
+
+class Correction(Base):
+    __tablename__ = "corrections"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    message_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    conversation_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    
+    # "grammar", "vocabulary", or "naturalness"
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    
+    # E.g., "past_tense", "wrong_collocation"
+    subtype: Mapped[str] = mapped_column(String(50), nullable=False)
+    
+    original: Mapped[str] = mapped_column(Text, nullable=False)
+    correction: Mapped[str] = mapped_column(Text, nullable=False)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    # TRUE = actual mistake (red label). FALSE = suggestion/improvement (blue label).
+    is_error: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    # "high", "medium", "low"
+    severity: Mapped[str] = mapped_column(String(10), default="medium")
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    
+    # Relationships
+    message: Mapped["Message"] = relationship()
+
