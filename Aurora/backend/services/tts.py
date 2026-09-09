@@ -24,11 +24,12 @@ from backend.config import VOICES_DIR
 # Hard boundaries (.!?) are always split. Soft boundaries (,;) only if the
 # buffer is already long enough to avoid tiny TTS calls.
 HARD_BOUNDARY = re.compile(r'[.!?](\s|$)')
-SOFT_BOUNDARY = re.compile(r'[,;](\s|$)')
+SOFT_BOUNDARY = re.compile(r'[,;:](\s|$)')
 MIN_CHARS = 45           # Min chars before a hard boundary (.!?) triggers a split.
                          # Keeps short phrases ('Ahoy, mate!') as one chunk — better prosody.
                          # Only genuinely multi-sentence replies get chunked for streaming.
-SOFT_MIN_CHARS = 999     # Comma/semicolon splits disabled — cause robotic mid-sentence breaks.
+SOFT_MIN_CHARS = 120     # Safety valve: if a sentence has no period for 120+ chars,
+                         # split on a comma to prevent hitting Piper's max length limit.
 
 
 # Map of voice IDs to their .onnx filenames in the voices/ directory
@@ -143,27 +144,35 @@ def split_sentences(buffer: str) -> tuple[list[str], str]:
     remainder = buffer
 
     while True:
-        # Hard boundary: .!? followed by whitespace or end of string
-        m = HARD_BOUNDARY.search(remainder)
-        if m and m.start() >= MIN_CHARS - 1:
-            cut = m.start() + 1  # include the punctuation itself
-            sentence = remainder[:cut].strip()
+        # Find the first hard boundary that meets the MIN_CHARS threshold
+        found_cut = -1
+        for m in HARD_BOUNDARY.finditer(remainder):
+            if m.start() >= MIN_CHARS - 1:
+                found_cut = m.start() + 1  # include the punctuation itself
+                break
+                
+        if found_cut != -1:
+            sentence = remainder[:found_cut].strip()
             if sentence:
                 sentences.append(sentence)
-            remainder = remainder[cut:].lstrip()
+            remainder = remainder[found_cut:].lstrip()
             continue
 
-        # Soft boundary: ,; — only if buffer is long enough
-        m = SOFT_BOUNDARY.search(remainder)
-        if m and len(remainder) >= SOFT_MIN_CHARS:
-            cut = m.start() + 1
-            sentence = remainder[:cut].strip()
+        # Soft boundary: ,;: — only if buffer is getting dangerously long
+        found_soft = -1
+        for m in SOFT_BOUNDARY.finditer(remainder):
+            if m.start() >= SOFT_MIN_CHARS - 1:
+                found_soft = m.start() + 1
+                break
+                
+        if found_soft != -1:
+            sentence = remainder[:found_soft].strip()
             if sentence:
                 sentences.append(sentence)
-            remainder = remainder[cut:].lstrip()
+            remainder = remainder[found_soft:].lstrip()
             continue
 
-        break  # No more boundaries found
+        break  # No valid boundaries found
 
     return sentences, remainder
 

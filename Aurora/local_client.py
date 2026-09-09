@@ -151,7 +151,14 @@ def play_audio(wav_bytes: bytes):
 
     audio_int16 = np.frombuffer(frames, dtype=np.int16)
     audio_float = audio_int16.astype(np.float32) / 32767.0
-    sd.play(audio_float, samplerate=rate, blocking=True)
+    
+    # Windows sounddevice quirk: stream closes instantly when sd.play returns,
+    # often dropping the last ~100-300ms of audio still in the OS buffer.
+    # We pad the end with 0.3s of silence so only the silence gets dropped.
+    silence_padding = np.zeros(int(rate * 0.3), dtype=np.float32)
+    padded_audio = np.concatenate([audio_float, silence_padding])
+    
+    sd.play(padded_audio, samplerate=rate, blocking=True)
 
 
 def check_server():
