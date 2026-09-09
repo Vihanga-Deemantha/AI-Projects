@@ -31,6 +31,13 @@ class User(Base):
     display_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+    # Nullable so pre-auth anonymous rows survive the migration. A row with a
+    # NULL hash simply can't log in — verify_password() rejects it.
+    password_hash: Mapped[str | None] = mapped_column(
+        String(255), nullable=True,
+        comment="bcrypt hash; NULL for legacy anonymous users"
+    )
+
     # User preferences — stored here so they persist across sessions
     preferred_voice: Mapped[str] = mapped_column(
         String(50), default="amy",

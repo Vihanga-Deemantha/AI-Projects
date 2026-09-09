@@ -29,6 +29,15 @@ LLM_REASONING_EFFORT: str = os.getenv("LLM_REASONING_EFFORT", "low")
 # ── Database ─────────────────────────────────────────────────────────────────
 DATABASE_URL: str = os.environ["DATABASE_URL"]  # Hard fail if missing
 
+# ── Auth (JWT) ───────────────────────────────────────────────────────────────
+# Hard fail if missing: a default/fallback secret would silently make every
+# issued token forgeable. Generate one with:
+#   python -c "import secrets; print(secrets.token_urlsafe(32))"
+# Rotating this invalidates all existing sessions (everyone gets logged out).
+JWT_SECRET: str = os.environ["JWT_SECRET"]
+JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
+JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "10080"))  # 7 days
+
 # ── Whisper ──────────────────────────────────────────────────────────────────
 WHISPER_MODEL_SIZE: str = os.getenv("WHISPER_MODEL_SIZE", "base.en")
 WHISPER_DEVICE: str = os.getenv("WHISPER_DEVICE", "cpu")

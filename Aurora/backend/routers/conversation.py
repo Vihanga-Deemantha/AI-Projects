@@ -12,6 +12,7 @@ import queue as queue_module
 import tempfile
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 # pyrefly: ignore [missing-import]
@@ -22,6 +23,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
+from backend.dependencies import get_current_user
 from backend.models.core import Conversation, Message, User
 from backend.services.analysis import run_async_analysis
 from backend.personalities import (
@@ -37,26 +39,39 @@ router = APIRouter(prefix="/api/conversation", tags=["conversation"])
 
 # ── Start Session ─────────────────────────────────────────────────────────────
 
+def _owned_conversation(conversation_id: str, user: User, db: Session) -> Conversation:
+    """
+    Loads a conversation, or 404s unless it belongs to `user`.
+
+    Deliberately 404 (not 403) for someone else's conversation: a 403 would
+    confirm the id exists, letting ids be enumerated.
+    """
+    conversation = (
+        db.query(Conversation)
+        .filter(Conversation.id == conversation_id, Conversation.user_id == user.id)
+        .first()
+    )
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conversation
+
+
 @router.post("/start")
 def start_conversation(
-    user_id: str = Form(...),
     scenario: str = Form(default=DEFAULT_SCENARIO),
     style: str = Form(default=DEFAULT_STYLE),
     voice: str = Form(default=DEFAULT_VOICE),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Creates a new conversation session in the database.
-    Returns the conversation_id to use in all subsequent /message calls.
-    """
-    user = db.query(User).filter_by(id=user_id).first()
-    if not user:
-        user = User(id=user_id)
-        db.add(user)
-        db.commit()
+    Creates a new conversation session for the authenticated user.
 
+    The owner comes from the verified JWT — never from the request body, which
+    previously let any caller claim any user_id (and auto-created that user).
+    """
     conversation = Conversation(
-        user_id=user_id,
+        user_id=user.id,
         scenario=scenario,
         style=style,
         voice=voice,
@@ -67,10 +82,35 @@ def start_conversation(
 
     return {
         "conversation_id": conversation.id,
-        "user_id": user_id,
+        "user_id": user.id,
         "scenario": scenario,
         "style": style,
         "voice": voice,
+    }
+
+
+@router.post("/{conversation_id}/end")
+def end_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Closes a session so history has a real duration and completion state.
+    Idempotent — ending an already-ended session returns the existing values.
+    """
+    conversation = _owned_conversation(conversation_id, user, db)
+
+    if not conversation.is_complete:
+        conversation.ended_at = datetime.now(timezone.utc)
+        conversation.is_complete = True
+        db.commit()
+        db.refresh(conversation)
+
+    return {
+        "conversation_id": conversation.id,
+        "ended_at": conversation.ended_at.isoformat() if conversation.ended_at else None,
+        "is_complete": conversation.is_complete,
     }
 
 
@@ -80,6 +120,7 @@ def start_conversation(
 async def send_message(
     conversation_id: str = Form(...),
     audio_file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -93,10 +134,8 @@ async def send_message(
     t_total = time.perf_counter()
     timings: dict[str, float] = {}
 
-    # ── Fetch conversation ────────────────────────────────────────────────────
-    conversation = db.query(Conversation).filter_by(id=conversation_id).first()
-    if not conversation:
-        raise HTTPException(status_code=404, detail=f"Conversation '{conversation_id}' not found")
+    # ── Fetch conversation (404s unless the caller owns it) ───────────────────
+    conversation = _owned_conversation(conversation_id, user, db)
 
     # ── Save audio to temp file ───────────────────────────────────────────────
     suffix = Path(audio_file.filename or "audio.wav").suffix or ".wav"
@@ -188,6 +227,7 @@ async def send_message_stream(
     conversation_id: str = Form(...),
     audio_file: UploadFile = File(...),
     background_tasks: BackgroundTasks = BackgroundTasks(),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -208,10 +248,8 @@ async def send_message_stream(
     t_total = time.perf_counter()
     timings: dict = {}
 
-    # ── Fetch conversation ────────────────────────────────────────────────────
-    conversation = db.query(Conversation).filter_by(id=conversation_id).first()
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    # ── Fetch conversation (404s unless the caller owns it) ───────────────────
+    conversation = _owned_conversation(conversation_id, user, db)
 
     # ── Save audio to temp file ───────────────────────────────────────────────
     suffix = Path(audio_file.filename or "audio.wav").suffix or ".wav"

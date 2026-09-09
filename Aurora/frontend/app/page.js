@@ -1,325 +1,101 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Sidebar from "@/components/Sidebar";
-import SessionSetup from "@/components/SessionSetup";
-import SessionControls from "@/components/SessionControls";
-import StatsRow from "@/components/StatsRow";
-import WaveformHero from "@/components/WaveformHero";
-import ConversationView from "@/components/ConversationView";
-import CorrectionsPanel from "@/components/CorrectionsPanel";
-import LatencyBadge from "@/components/LatencyBadge";
-import { getOptions, startSession, streamMessage } from "@/lib/api";
-import { createAudioQueue } from "@/lib/audioQueue";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { isLoggedIn } from "@/lib/auth";
 
-const USER_ID_KEY = "aura_user_id";
+export default function HomePage() {
+  const [loggedIn, setLoggedIn] = useState(false);
 
-function getOrCreateUserId() {
-  if (typeof window === "undefined") return "";
-  let id = localStorage.getItem(USER_ID_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(USER_ID_KEY, id);
-  }
-  return id;
-}
-
-let nextMessageId = 1;
-
-export default function Home() {
-  const [userId, setUserId] = useState("");
-  const [options, setOptions] = useState(null);
-  const [setupValue, setSetupValue] = useState({ voice: "amy", style: "standard", scenario: "casual" });
-  const [starting, setStarting] = useState(false);
-  const [session, setSession] = useState(null); // { conversationId }
-  const [messages, setMessages] = useState([]);
-  const [turns, setTurns] = useState(0);
-  const [sessionSeconds, setSessionSeconds] = useState(0);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [paused, setPaused] = useState(false);
-  const [micAnalyser, setMicAnalyser] = useState(null);
-  const [timings, setTimings] = useState(null);
-  const [correctionsRefreshKey, setCorrectionsRefreshKey] = useState(0);
-  const [correctionsCount, setCorrectionsCount] = useState(0);
-  const [error, setError] = useState(null);
-  const [playbackAnalyser, setPlaybackAnalyser] = useState(null);
-
-  const audioQueueRef = useRef(null);
-  const currentAuraMessageIdRef = useRef(null);
-
-  // Load persisted user id + available voice/style/scenario options on mount.
-  // localStorage is only readable client-side, so this has to happen post-mount
-  // rather than in a lazy useState initializer (which would mismatch SSR output).
+  // After mount: localStorage is unavailable during SSR, so the page renders
+  // logged-out first and adjusts once hydrated.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time read from localStorage, not derived from props/state
-    setUserId(getOrCreateUserId());
-    getOptions()
-      .then((opts) => {
-        setOptions(opts);
-        setSetupValue({
-          voice: opts.defaults.voice,
-          style: opts.defaults.style,
-          scenario: opts.defaults.scenario,
-        });
-      })
-      .catch(() => setError("Could not reach the AURA backend. Is it running on port 8000?"));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only; reading it during render would mismatch SSR output
+    setLoggedIn(isLoggedIn());
   }, []);
 
-  // Session timer.
-  useEffect(() => {
-    if (!session) return;
-    const start = Date.now();
-    const id = setInterval(() => setSessionSeconds((Date.now() - start) / 1000), 1000);
-    return () => clearInterval(id);
-  }, [session]);
-
-  function getAudioQueue() {
-    if (!audioQueueRef.current) {
-      const queue = createAudioQueue({
-        onChunkStart: () => setIsPlaying(true),
-        onQueueEmpty: () => setIsPlaying(false),
-      });
-      audioQueueRef.current = queue;
-      // The analyser is created once per queue and reused for every chunk,
-      // so this is a one-time state set, not a per-render ref read.
-      setPlaybackAnalyser(queue.analyser);
-    }
-    return audioQueueRef.current;
-  }
-
-  /**
-   * Returns the active session, creating one on demand if none exists yet.
-   * Used both by the explicit "Start Session" button AND by the first
-   * recording — holding the mic is enough to begin, no separate gate.
-   */
-  async function ensureSession() {
-    if (session) return session;
-    const data = await startSession({ userId, ...setupValue });
-    const newSession = { conversationId: data.conversation_id };
-    setSession(newSession);
-    getAudioQueue(); // created during a user gesture, for browser autoplay policies
-    return newSession;
-  }
-
-  async function handleStart() {
-    setStarting(true);
-    setError(null);
-    try {
-      await ensureSession();
-    } catch (err) {
-      setError(`Could not start session: ${err.message}`);
-    } finally {
-      setStarting(false);
-    }
-  }
-
-  function handleEndSession() {
-    audioQueueRef.current?.close();
-    audioQueueRef.current = null;
-    setPlaybackAnalyser(null);
-    setPaused(false);
-    setSession(null);
-    setMessages([]);
-    setTurns(0);
-    setSessionSeconds(0);
-    setTimings(null);
-    setCorrectionsCount(0);
-    setCorrectionsRefreshKey(0);
-    setError(null);
-  }
-
-  function handleTogglePause() {
-    const queue = audioQueueRef.current;
-    if (!queue) return;
-    if (paused) {
-      queue.resume();
-      setPaused(false);
-    } else {
-      queue.pause();
-      setPaused(true);
-    }
-  }
-
-  async function handleRecordingComplete(blob, recordingError) {
-    if (recordingError) {
-      setError(describeMicError(recordingError));
-      return;
-    }
-    if (!blob) return;
-
-    setError(null);
-    setIsProcessing(true);
-    currentAuraMessageIdRef.current = null;
-
-    try {
-      // Holding the mic is enough to start a session — no separate button required.
-      const activeSession = await ensureSession();
-
-      await streamMessage(activeSession.conversationId, blob, {
-        onTranscript: (text) => {
-          setMessages((prev) => [
-            ...prev,
-            { id: nextMessageId++, role: "user", text, timestamp: nowLabel() },
-          ]);
-        },
-        onAudioChunk: (chunk) => {
-          getAudioQueue().enqueue(chunk.data, chunk.text);
-          setMessages((prev) => {
-            if (currentAuraMessageIdRef.current == null) {
-              const id = nextMessageId++;
-              currentAuraMessageIdRef.current = id;
-              return [...prev, { id, role: "assistant", text: chunk.text, pending: true }];
-            }
-            return prev.map((m) =>
-              m.id === currentAuraMessageIdRef.current
-                ? { ...m, text: `${m.text} ${chunk.text}` }
-                : m
-            );
-          });
-        },
-        onDone: (payload) => {
-          setTimings(payload.timings);
-          setTurns((t) => t + 1);
-          setMessages((prev) => {
-            // Normally an assistant bubble already exists from onAudioChunk.
-            // But if every sentence in this turn failed TTS synthesis (the
-            // backend tolerates that and still sends `done` with the full
-            // text), no audio_chunk ever arrived to create one — fall back
-            // to adding the reply directly so it's never silently dropped.
-            if (currentAuraMessageIdRef.current == null) {
-              if (!payload.full_reply) return prev;
-              return [
-                ...prev,
-                {
-                  id: nextMessageId++,
-                  role: "assistant",
-                  text: payload.full_reply,
-                  timestamp: nowLabel(),
-                },
-              ];
-            }
-            return prev.map((m) =>
-              m.id === currentAuraMessageIdRef.current
-                ? { ...m, text: payload.full_reply || m.text, pending: false, timestamp: nowLabel() }
-                : m
-            );
-          });
-          currentAuraMessageIdRef.current = null;
-          setCorrectionsRefreshKey((k) => k + 1);
-          setIsProcessing(false);
-        },
-        onError: (message) => {
-          setError(message);
-          setIsProcessing(false);
-        },
-      });
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  }
-
-  const sessionActive = Boolean(session);
-
-  // Single source of truth for the session status badge + controls, shared
-  // between SessionControls and WaveformHero so they never disagree.
-  let phase = "idle";
-  if (sessionActive) {
-    if (micAnalyser) phase = "recording";
-    else if (isProcessing) phase = "thinking";
-    else if (paused) phase = "paused";
-    else if (isPlaying) phase = "speaking";
-    else phase = "active";
-  }
-  const canPause = phase === "speaking" || phase === "paused";
-
   return (
-    <div className="flex min-h-screen flex-1">
-      <Sidebar onNewSession={handleEndSession} sessionActive={sessionActive} />
-
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-8 py-8">
-        <header>
-          <h1 className="text-2xl font-bold">AI Speaking Coach</h1>
-          <p className="text-sm text-foreground/50">Practice a real conversation. Get grammar and vocabulary feedback as you go.</p>
-        </header>
-
-        {error && (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {error}
-          </div>
-        )}
-
-        <SessionControls
-          phase={phase}
-          starting={starting}
-          canPause={canPause}
-          onStart={handleStart}
-          onTogglePause={handleTogglePause}
-          onEnd={handleEndSession}
-        />
-
-        <div className="grid flex-1 grid-cols-1 gap-6 lg:grid-cols-[1.2fr_1fr]">
-          <div className="flex flex-col gap-6">
-            <WaveformHero
-              isProcessing={isProcessing}
-              isPlaying={isPlaying}
-              paused={paused}
-              playbackAnalyser={playbackAnalyser}
-              micAnalyser={micAnalyser}
-              onAnalyser={setMicAnalyser}
-              onRecordingComplete={handleRecordingComplete}
-            />
-
-            {timings && (
-              <div className="flex justify-center">
-                <LatencyBadge timings={timings} />
-              </div>
-            )}
-
-            <StatsRow turns={turns} sessionSeconds={sessionSeconds} correctionsCount={correctionsCount} />
-
-            <SessionSetup
-              options={options}
-              value={setupValue}
-              onChange={setSetupValue}
-              sessionActive={sessionActive}
-            />
-          </div>
-
-          <div className="flex flex-col gap-6">
-            <ConversationView messages={messages} />
-            <div className="h-64 shrink-0">
-              <CorrectionsPanel
-                key={session?.conversationId ?? "no-session"}
-                conversationId={session?.conversationId}
-                refreshKey={correctionsRefreshKey}
-                onCountChange={setCorrectionsCount}
-              />
-            </div>
-          </div>
+    <div className="flex min-h-screen flex-1 flex-col">
+      <header className="flex items-center justify-between px-6 py-4 sm:px-10">
+        <div className="flex items-center gap-2">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand font-bold text-white">
+            A
+          </span>
+          <span className="font-bold">AURA</span>
         </div>
+        <nav className="flex items-center gap-2">
+          {loggedIn ? (
+            <Link href="/practice" className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark">
+              Go to Practice
+            </Link>
+          ) : (
+            <>
+              <Link href="/login" className="rounded-xl px-4 py-2 text-sm font-medium text-foreground/70 transition hover:text-brand">
+                Log In
+              </Link>
+              <Link href="/signup" className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark">
+                Sign Up
+              </Link>
+            </>
+          )}
+        </nav>
+      </header>
+
+      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center px-6 py-16 text-center sm:py-24">
+        <h1 className="max-w-3xl text-4xl font-bold leading-tight sm:text-5xl">
+          Speak naturally.<br />Get smarter feedback.
+        </h1>
+        <p className="mt-5 max-w-xl text-base text-foreground/60">
+          AURA is an AI speaking coach. Have a real spoken conversation, then see
+          exactly where your grammar and vocabulary can improve — turn by turn.
+        </p>
+
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <Link
+            href={loggedIn ? "/practice" : "/signup"}
+            className="rounded-xl bg-brand px-6 py-3 text-sm font-semibold text-white shadow-md shadow-indigo-200 transition hover:bg-brand-dark"
+          >
+            {loggedIn ? "Start Practising" : "Get Started Free"}
+          </Link>
+          {!loggedIn && (
+            <Link
+              href="/login"
+              className="rounded-xl border border-panel-border bg-panel px-6 py-3 text-sm font-semibold text-foreground/70 transition hover:border-brand/40 hover:text-brand"
+            >
+              I already have an account
+            </Link>
+          )}
+        </div>
+
+        <div className="mt-20 grid w-full gap-5 text-left sm:grid-cols-3">
+          <Feature
+            title="Real conversation"
+            body="Speak out loud and AURA replies in a natural voice — not a chatbot with a play button."
+          />
+          <Feature
+            title="Feedback that teaches"
+            body="Grammar and vocabulary corrections after each turn, with the reason behind every fix."
+          />
+          <Feature
+            title="Practise your way"
+            body="4 voices, 6 English styles and 5 scenarios — from casual chat to job interviews."
+          />
+        </div>
+
+        <p className="mt-16 text-xs text-foreground/35">
+          Conversational style presets are informed by regional English vocabulary
+          and phrasing — not claims of accent reproduction.
+        </p>
       </main>
     </div>
   );
 }
 
-function nowLabel() {
-  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function describeMicError(err) {
-  switch (err?.name) {
-    case "NotAllowedError":
-      return "Microphone permission was denied or dismissed. Click the mic/lock icon in your browser's address bar, allow microphone access, then try again.";
-    case "NotFoundError":
-      return "No microphone was found. Check that one is connected and try again.";
-    case "NotReadableError":
-      return "Your microphone is already in use by another app. Close it and try again.";
-    case "TooShortError":
-      return "That was too short to send — hold the mic button down while you speak, then release.";
-    default:
-      return "Could not access the microphone. Check your browser's permission settings and try again.";
-  }
+function Feature({ title, body }) {
+  return (
+    <div className="rounded-2xl border border-panel-border bg-panel p-5">
+      <h2 className="font-semibold">{title}</h2>
+      <p className="mt-1.5 text-sm text-foreground/55">{body}</p>
+    </div>
+  );
 }
