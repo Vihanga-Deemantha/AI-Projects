@@ -295,7 +295,7 @@ async def send_message_stream(
 
         def stream_tokens():
             try:
-                for token in llm.chat_stream(messages_list, max_tokens=300):
+                for token in llm.chat_stream(messages_list, max_tokens=400):
                     token_queue.put(token)
             except Exception as exc:
                 token_queue.put(Exception(f"LLM error: {exc}"))

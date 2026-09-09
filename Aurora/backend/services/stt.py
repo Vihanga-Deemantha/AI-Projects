@@ -14,6 +14,10 @@ from backend.config import WHISPER_COMPUTE_TYPE, WHISPER_DEVICE, WHISPER_MODEL_S
 _model: Optional[WhisperModel] = None
 
 
+class AudioDecodeError(Exception):
+    """Raised when the input audio can't be demuxed/decoded (corrupt or malformed file)."""
+
+
 def _get_model() -> WhisperModel:
     """
     Returns the shared WhisperModel, loading it on the first call.
@@ -60,35 +64,47 @@ def transcribe(audio_path: str) -> dict:
     model = _get_model()
     t0 = time.perf_counter()
 
-    segments, info = model.transcribe(
-        audio_path,
-        word_timestamps=True,
-        language="en",
-        vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=300),
-    )
+    # faster-whisper decodes the audio via PyAV/ffmpeg under the hood, lazily
+    # on first iteration of `segments` (not on the transcribe() call itself).
+    # Browser recordings (e.g. Chrome's MediaRecorder webm/opus output) can
+    # occasionally be malformed or pathologically short in a way PyAV can't
+    # demux — wrap both the call and the iteration so either failure point
+    # surfaces a clean, actionable message instead of a raw ffmpeg errno.
+    try:
+        segments, info = model.transcribe(
+            audio_path,
+            word_timestamps=True,
+            language="en",
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=300),
+        )
 
-    # Materialise the lazy generator — must iterate to get results
-    all_words = []
-    full_text_parts = []
-    total_logprob = 0.0
-    segment_count = 0
+        # Materialise the lazy generator — must iterate to get results
+        all_words = []
+        full_text_parts = []
+        total_logprob = 0.0
+        segment_count = 0
 
-    for segment in segments:
-        text = segment.text.strip()
-        if text:
-            full_text_parts.append(text)
-        total_logprob += segment.avg_logprob
-        segment_count += 1
+        for segment in segments:
+            text = segment.text.strip()
+            if text:
+                full_text_parts.append(text)
+            total_logprob += segment.avg_logprob
+            segment_count += 1
 
-        if segment.words:
-            for word in segment.words:
-                all_words.append({
-                    "word": word.word,
-                    "start": round(word.start, 3),
-                    "end": round(word.end, 3),
-                    "probability": round(word.probability, 3),
-                })
+            if segment.words:
+                for word in segment.words:
+                    all_words.append({
+                        "word": word.word,
+                        "start": round(word.start, 3),
+                        "end": round(word.end, 3),
+                        "probability": round(word.probability, 3),
+                    })
+    except Exception as exc:
+        raise AudioDecodeError(
+            "Could not process that recording — it may have been too short or corrupted. "
+            "Please try again and hold the mic for at least a second."
+        ) from exc
 
     latency_ms = (time.perf_counter() - t0) * 1000
     avg_logprob = (total_logprob / segment_count) if segment_count > 0 else 0.0
