@@ -49,3 +49,6 @@ voices/
 *.onnx.json
 
 ./voices
+
+en_US-lessac-medium.onnx 
+en_US-ryan-high.onnx
