@@ -2,7 +2,7 @@
 Pydantic schemas for API request/response validation.
 These are NOT database models — they define the API contract.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -23,6 +23,41 @@ class UserResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+# NOTE: UserResponse deliberately has no `password_hash` field. Because the
+# auth routes are declared with response_model=..., FastAPI serialises through
+# these schemas, so a hash cannot leak even if a full ORM object is returned.
+
+class SignupRequest(BaseModel):
+    email: EmailStr
+    # 8 char floor; no max — services/auth.py pre-hashes, so bcrypt's 72-byte
+    # limit doesn't apply and long passphrases stay fully significant.
+    password: str = Field(min_length=8)
+    display_name: Optional[str] = Field(default=None, max_length=100)
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class AuthUser(BaseModel):
+    id: str
+    email: Optional[str]
+    display_name: Optional[str]
+    preferred_voice: str
+    preferred_style: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: AuthUser
 
 
 # ── Conversations ─────────────────────────────────────────────────────────────

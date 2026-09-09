@@ -5,7 +5,39 @@
  * (the Python terminal client) — same endpoints, same NDJSON protocol.
  */
 
+import { getToken, logout } from "@/lib/auth";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+
+/** Raised on 401 so callers/UI can send the user back to /login. */
+export class UnauthorizedError extends Error {
+  constructor() {
+    super("Your session has expired. Please log in again.");
+    this.name = "UnauthorizedError";
+  }
+}
+
+function authHeaders(extra = {}) {
+  const token = getToken();
+  return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
+}
+
+/**
+ * fetch wrapper that attaches the Bearer token and turns a 401 into a cleared
+ * session, so an expired token can't leave the UI stuck in a half-logged-in
+ * state making failing calls.
+ */
+async function authFetch(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: authHeaders(options.headers),
+  });
+  if (res.status === 401) {
+    logout();
+    throw new UnauthorizedError();
+  }
+  return res;
+}
 
 /** Fetches voice/style/scenario options for the session setup picker. */
 export async function getOptions() {
@@ -14,19 +46,41 @@ export async function getOptions() {
   return res.json();
 }
 
-/** Creates a new conversation session. Returns { conversation_id, user_id, scenario, style, voice }. */
-export async function startSession({ userId, scenario, style, voice }) {
+/**
+ * Creates a new conversation session. The owner is taken from the JWT — there
+ * is deliberately no user_id parameter, since the server ignores client-supplied
+ * ids now.
+ */
+export async function startSession({ scenario, style, voice }) {
   const form = new FormData();
-  form.set("user_id", userId);
   form.set("scenario", scenario);
   form.set("style", style);
   form.set("voice", voice);
 
-  const res = await fetch(`${API_BASE}/api/conversation/start`, {
-    method: "POST",
-    body: form,
-  });
+  const res = await authFetch(`/api/conversation/start`, { method: "POST", body: form });
   if (!res.ok) throw new Error(`Failed to start session (${res.status})`);
+  return res.json();
+}
+
+/** Marks a session complete so it gets a duration in history. */
+export async function endSession(conversationId) {
+  const res = await authFetch(`/api/conversation/${conversationId}/end`, { method: "POST" });
+  if (!res.ok) throw new Error(`Failed to end session (${res.status})`);
+  return res.json();
+}
+
+/** Past sessions for the logged-in user, newest first. */
+export async function getSessions({ limit = 20, offset = 0 } = {}) {
+  const res = await authFetch(`/api/history/sessions?limit=${limit}&offset=${offset}`);
+  if (!res.ok) throw new Error(`Failed to load history (${res.status})`);
+  return res.json();
+}
+
+/** One past session: full transcript with corrections attached per turn. */
+export async function getSession(conversationId) {
+  const res = await authFetch(`/api/history/sessions/${conversationId}`);
+  if (res.status === 404) throw new Error("Session not found");
+  if (!res.ok) throw new Error(`Failed to load session (${res.status})`);
   return res.json();
 }
 
@@ -55,7 +109,7 @@ export async function streamMessage(conversationId, audioBlob, handlers = {}) {
   form.set("conversation_id", conversationId);
   form.set("audio_file", audioBlob, "audio.webm");
 
-  const res = await fetch(`${API_BASE}/api/conversation/message-stream`, {
+  const res = await authFetch(`/api/conversation/message-stream`, {
     method: "POST",
     body: form,
   });
@@ -122,8 +176,8 @@ function dispatch(msg, handlers) {
 
 /** Fetches recent grammar/vocab corrections for a conversation (Option B — polled after the fact). */
 export async function getRecentCorrections(conversationId, limit = 5) {
-  const res = await fetch(
-    `${API_BASE}/api/analysis/conversation/${conversationId}/recent?limit=${limit}`
+  const res = await authFetch(
+    `/api/analysis/conversation/${conversationId}/recent?limit=${limit}`
   );
   if (!res.ok) throw new Error(`Failed to fetch corrections (${res.status})`);
   return res.json();
