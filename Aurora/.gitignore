@@ -47,3 +47,5 @@ AURA_phase1b_plan.md
 voices/
 *.onnx
 *.onnx.json
+
+./voices
