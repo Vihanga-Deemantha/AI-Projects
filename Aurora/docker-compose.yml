@@ -1,0 +1,24 @@
+# docker-compose.yml
+# Runs a local PostgreSQL instance for development.
+# Start with: docker compose up -d
+# Stop with:  docker compose down
+# Wipe DB:    docker compose down -v
+
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aura_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aura
+      POSTGRES_PASSWORD: aura_dev_pass
+      POSTGRES_DB: aura_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
