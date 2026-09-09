@@ -4,7 +4,12 @@ All LLM calls go through this module — never instantiate Groq() in a route dir
 """
 # pyrefly: ignore [missing-import]
 from groq import Groq
-from backend.config import GROQ_API_KEY, LLM_CONVERSATION_MODEL, LLM_ANALYSIS_MODEL
+from backend.config import (
+    GROQ_API_KEY,
+    LLM_ANALYSIS_MODEL,
+    LLM_CONVERSATION_MODEL,
+    LLM_REASONING_EFFORT,
+)
 
 _client: Groq | None = None
 
@@ -15,6 +20,15 @@ def get_client() -> Groq:
     if _client is None:
         _client = Groq(api_key=GROQ_API_KEY)
     return _client
+
+
+def _reasoning_kwargs() -> dict:
+    """
+    Extra kwargs for reasoning models (gpt-oss). Returns an empty dict when
+    LLM_REASONING_EFFORT is unset, so non-reasoning models (llama-*) — which
+    reject this parameter — still work without config changes.
+    """
+    return {"reasoning_effort": LLM_REASONING_EFFORT} if LLM_REASONING_EFFORT else {}
 
 
 def chat(
@@ -38,6 +52,7 @@ def chat(
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
+        **_reasoning_kwargs(),
     )
     return response.choices[0].message.content
 
@@ -61,6 +76,7 @@ def chat_json(
         temperature=temperature,
         max_tokens=max_tokens,
         response_format={"type": "json_object"},  # Groq-supported JSON mode
+        **_reasoning_kwargs(),
     )
     return response.choices[0].message.content
 
@@ -139,8 +155,15 @@ def chat_stream(
         temperature=temperature,
         max_tokens=max_tokens,
         stream=True,
+        **_reasoning_kwargs(),
     )
     for chunk in stream:
+        # A trailing usage-only chunk can carry an empty `choices` list;
+        # indexing it blindly would raise IndexError and kill the stream.
+        if not chunk.choices:
+            continue
+        # Reasoning models put internal reasoning on `delta.reasoning`, which
+        # we deliberately ignore — only user-facing `content` is spoken.
         token = chunk.choices[0].delta.content
         if token:
             yield token

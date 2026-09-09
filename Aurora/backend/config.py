@@ -16,6 +16,16 @@ GROQ_API_KEY: str = os.environ["GROQ_API_KEY"]  # Hard fail if missing
 LLM_CONVERSATION_MODEL: str = os.getenv("LLM_CONVERSATION_MODEL", "openai/gpt-oss-120b")
 LLM_ANALYSIS_MODEL: str = os.getenv("LLM_ANALYSIS_MODEL", "openai/gpt-oss-20b")
 
+# The gpt-oss models are REASONING models: they emit internal reasoning tokens
+# that count against max_tokens before any user-facing content appears. At the
+# default effort that reasoning is long and highly variable (~600-1100 chars),
+# which intermittently exhausted the budget and produced truncated — or
+# completely empty — replies, and inflated time-to-first-audio. "low" keeps it
+# short and predictable (~120 chars).
+# Set to an empty string if you switch to a non-reasoning model (llama-*),
+# which does not accept this parameter.
+LLM_REASONING_EFFORT: str = os.getenv("LLM_REASONING_EFFORT", "low")
+
 # ── Database ─────────────────────────────────────────────────────────────────
 DATABASE_URL: str = os.environ["DATABASE_URL"]  # Hard fail if missing
 
