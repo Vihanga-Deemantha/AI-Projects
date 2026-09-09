@@ -21,10 +21,27 @@ async def lifespan(app: FastAPI):
     Creates all DB tables on first run (idempotent — safe to run repeatedly).
     In production, use Alembic migrations instead.
     """
+    import threading
+    from backend.services import tts as _tts
+
+    def _prewarm_tts():
+        """
+        Pre-loads all voice models on startup so the first user turn
+        doesn't pay the .onnx load cost. Runs in a daemon thread.
+        """
+        try:
+            for voice_id in ["amy", "ryan", "alan", "lessac"]:
+                _tts._get_voice(voice_id)
+        except Exception as e:
+            print(f"[Startup] TTS pre-warm failed (non-fatal): {e}")
+
+    threading.Thread(target=_prewarm_tts, daemon=True, name="tts-prewarm").start()
+
     Base.metadata.create_all(bind=engine)
     print("[Startup] Database tables verified / created")
     yield
     # (cleanup on shutdown goes here if needed)
+
 
 
 app = FastAPI(
