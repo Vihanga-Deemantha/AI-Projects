@@ -23,6 +23,10 @@ import wave
 import queue
 import threading
 import json
+import warnings
+
+# Suppress PyTorch FutureWarnings (e.g. from silero-vad) to prevent UI mangling
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 # pyrefly: ignore [missing-import]
 import numpy as np
@@ -305,12 +309,40 @@ def print_timings(timings: dict):
     print(f"  Total       {timings.get('total_ms') or 0:>6.0f} ms")
 
 
+seen_correction_ids = set()
+
+def fetch_and_print_feedback(conversation_id: str):
+    """Fetches recent grammar/vocab feedback and prints new items (Option B async flow)."""
+    try:
+        url = f"http://127.0.0.1:8000/api/analysis/conversation/{conversation_id}/recent?limit=5"
+        resp = requests.get(url, timeout=2.0)
+        if resp.status_code == 200:
+            corrections = resp.json().get("corrections", [])
+            new_corrections = [c for c in corrections if c["id"] not in seen_correction_ids]
+            
+            if new_corrections:
+                print("\n  [Feedback on your recent speech]")
+                for c in new_corrections:
+                    seen_correction_ids.add(c["id"])
+                    
+                    icon = "❌" if c.get("is_error") else "💡"
+                    category = c.get("category", "").title()
+                    subtype = c.get("subtype", "")
+                    
+                    print(f"  {icon} {category} ({subtype})")
+                    print(f"     You said: \"{c.get('original')}\"")
+                    print(f"     Better  : \"{c.get('correction')}\"")
+                    print(f"     Why     : {c.get('explanation')}\n")
+    except Exception as e:
+        pass # Silently ignore polling errors so we don't break the chat
+
+
 # ── Main Conversation Loop ─────────────────────────────────────────────────────
 if __name__ == "__main__":
     print()
     print("=" * 55)
     print("  AURA — AI English Speaking Coach")
-    print("  Local Voice Client — Phase 1")
+    print("  Local Voice Client — Phase 2")
     print("  Press Ctrl+C to end the session")
     print("=" * 55)
 
@@ -323,6 +355,9 @@ if __name__ == "__main__":
     turn = 0
     while True:
         try:
+            # Option B: Print any feedback generated from the *previous* turn before we record
+            fetch_and_print_feedback(conversation_id)
+
             audio = record_until_silence()
 
             if len(audio) == 0:
