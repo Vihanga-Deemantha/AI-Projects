@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import AuthForm from "@/components/AuthForm";
 import AuthBrandPanel from "@/components/AuthBrandPanel";
 
@@ -15,7 +16,11 @@ export default function SignupPage() {
         ]}
       />
       <div className="flex flex-1 items-center justify-center px-6 py-12">
-        <AuthForm mode="signup" />
+        {/* See app/login/page.js — AuthForm's useSearchParams() call needs a
+            Suspense boundary on a statically-prerendered page. */}
+        <Suspense fallback={null}>
+          <AuthForm mode="signup" />
+        </Suspense>
       </div>
     </div>
   );

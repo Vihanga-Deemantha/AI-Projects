@@ -11,7 +11,7 @@ const PAGE_SIZE = 20;
 export default function HistoryPage() {
   return (
     <AuthGuard>
-      <div className="flex min-h-screen flex-1">
+      <div className="flex min-h-screen flex-1 flex-col lg:flex-row">
         <AppSidebar />
         <SessionList />
       </div>
@@ -46,7 +46,7 @@ function SessionList() {
   }, [offset]);
 
   return (
-    <main className="mx-auto w-full max-w-4xl flex-1 px-10 py-9">
+    <main className="mx-auto w-full max-w-4xl flex-1 px-5 py-7 sm:px-8 lg:px-10 lg:py-9">
       <header className="mb-7">
         <h1 className="font-display text-[28px] font-bold">Speech History</h1>
         <p className="text-sm text-foreground/50">

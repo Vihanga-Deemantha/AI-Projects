@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import AuthForm from "@/components/AuthForm";
 import AuthBrandPanel from "@/components/AuthBrandPanel";
 
@@ -15,7 +16,12 @@ export default function LoginPage() {
         ]}
       />
       <div className="flex flex-1 items-center justify-center px-6 py-12">
-        <AuthForm mode="login" />
+        {/* AuthForm reads useSearchParams() (for ?error=... from a failed
+            Google OAuth redirect), which requires a Suspense boundary on a
+            statically-prerendered page. */}
+        <Suspense fallback={null}>
+          <AuthForm mode="login" />
+        </Suspense>
       </div>
     </div>
   );

@@ -8,12 +8,20 @@ rejects instead of silently truncating).
 """
 import base64
 import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
+import resend
 from jose import JWTError, jwt
 
-from backend.config import JWT_ALGORITHM, JWT_EXPIRE_MINUTES, JWT_SECRET
+from backend.config import (
+    EMAIL_FROM,
+    JWT_ALGORITHM,
+    JWT_EXPIRE_MINUTES,
+    JWT_SECRET,
+    RESEND_API_KEY,
+)
 
 
 def _prehash(password: str) -> bytes:
@@ -70,3 +78,59 @@ def decode_access_token(token: str) -> str | None:
         return None
     user_id = payload.get("sub")
     return user_id if isinstance(user_id, str) else None
+
+
+# ── Password-reset OTP ──────────────────────────────────────────────────────
+# Same bcrypt-with-prehash approach as passwords above — an OTP is just a
+# short-lived, single-purpose password, so it gets the same treatment: never
+# stored or logged in the clear, only as a hash.
+
+def generate_otp() -> str:
+    """A cryptographically random 6-digit code, zero-padded (e.g. '004821')."""
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def hash_otp(otp: str) -> str:
+    return bcrypt.hashpw(_prehash(otp), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_otp(otp: str, otp_hash: str) -> bool:
+    """Same not-raising-on-malformed-hash contract as verify_password()."""
+    if not otp_hash:
+        return False
+    try:
+        return bcrypt.checkpw(_prehash(otp), otp_hash.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
+
+
+class EmailNotConfiguredError(Exception):
+    """Raised when RESEND_API_KEY is unset — routers turn this into a clear 503."""
+
+
+def send_reset_email(to_email: str, otp: str) -> None:
+    """
+    Sends the password-reset OTP via Resend. Raises EmailNotConfiguredError if
+    RESEND_API_KEY isn't set, rather than letting the Resend SDK fail with a
+    less obvious auth error.
+    """
+    if not RESEND_API_KEY:
+        raise EmailNotConfiguredError("RESEND_API_KEY is not configured")
+
+    resend.api_key = RESEND_API_KEY
+    resend.Emails.send({
+        "from": EMAIL_FROM,
+        "to": [to_email],
+        "subject": f"Your AURA verification code: {otp}",
+        "html": f"""
+            <div style="font-family:sans-serif;max-width:420px;margin:0 auto;padding:32px 24px;">
+              <p style="font-size:14px;color:#555;">Use this code to reset your AURA password.
+              It expires in 15 minutes.</p>
+              <p style="font-size:32px;font-weight:700;letter-spacing:6px;
+                        text-align:center;margin:28px 0;">{otp}</p>
+              <p style="font-size:12px;color:#999;">
+                If you didn't request this, you can safely ignore this email.
+              </p>
+            </div>
+        """,
+    })

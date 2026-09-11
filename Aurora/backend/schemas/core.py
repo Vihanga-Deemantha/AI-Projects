@@ -50,6 +50,12 @@ class AuthUser(BaseModel):
     preferred_voice: str
     preferred_style: str
     created_at: datetime
+    avatar_url: Optional[str] = None
+    bio: Optional[str] = None
+    # Computed on the User model (see models/core.py) — never read from
+    # password_hash/google_id directly, so those two can never leak here.
+    has_password: bool = True
+    google_linked: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -58,6 +64,28 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: AuthUser
+
+
+class UpdateProfileRequest(BaseModel):
+    display_name: Optional[str] = Field(default=None, max_length=100)
+    bio: Optional[str] = Field(default=None, max_length=300)
+
+
+class ChangePasswordRequest(BaseModel):
+    # None only valid for a Google-only account setting a password for the
+    # first time — the router enforces that distinction, not this schema.
+    current_password: Optional[str] = None
+    new_password: str = Field(min_length=8)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+    new_password: str = Field(min_length=8)
 
 
 # ── Conversations ─────────────────────────────────────────────────────────────

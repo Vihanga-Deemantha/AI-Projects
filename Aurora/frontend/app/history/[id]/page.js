@@ -11,7 +11,7 @@ import { formatDate, formatDuration } from "../page";
 export default function SessionDetailPage() {
   return (
     <AuthGuard>
-      <div className="flex min-h-screen flex-1">
+      <div className="flex min-h-screen flex-1 flex-col lg:flex-row">
         <AppSidebar />
         <SessionDetail />
       </div>
@@ -44,7 +44,7 @@ function SessionDetail() {
   }, [id]);
 
   return (
-    <main className="mx-auto w-full max-w-3xl flex-1 px-10 py-9">
+    <main className="mx-auto w-full max-w-3xl flex-1 px-5 py-7 sm:px-8 lg:px-10 lg:py-9">
       <Link href="/history" className="flex items-center gap-2 text-sm font-semibold text-foreground/55 transition hover:text-brand">
         <BackIcon className="h-3.5 w-3.5" />
         Back to Speech History
@@ -62,9 +62,9 @@ function SessionDetail() {
 
       {status === "ready" && (
         <>
-          <header className="mt-5 mb-7 flex items-center gap-5 rounded-[20px] border border-brand/20 bg-linear-to-br from-brand-soft to-transparent p-6">
+          <header className="mt-5 mb-7 flex flex-wrap items-center gap-5 rounded-[20px] border border-brand/20 bg-linear-to-br from-brand-soft to-transparent p-5 sm:p-6">
             <span className="h-14 w-14 shrink-0 rounded-2xl bg-[radial-gradient(circle_at_36%_30%,#b4a8ff,#8b7cff_34%,#5541c9_90%)] shadow-[0_0_22px_rgba(139,124,255,0.4)]" />
-            <div className="flex-1">
+            <div className="min-w-40 flex-1">
               <h1 className="font-display text-xl font-bold capitalize">
                 {session.scenario} · {session.style}
               </h1>
