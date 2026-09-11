@@ -7,10 +7,18 @@ import { useEffect, useRef } from "react";
  * and TTS playback (while AURA is speaking) — whichever AnalyserNode is
  * passed in front, the drawing logic is identical.
  *
- * When `analyser` is null, renders a gentle idle animation instead of a
- * flat line, so the hero never looks "broken" between turns.
+ * When `analyser` is null, renders a gentle bell-curve breathing animation
+ * instead of a flat line, so the hero never looks "broken" between turns.
+ *
+ * `colorTop`/`colorBottom` paint each bar as a vertical gradient (matching
+ * the AURA design system's soundwave) rather than a flat fill.
  */
-export default function Waveform({ analyser, color = "#6366f1", barCount = 48 }) {
+export default function Waveform({
+  analyser,
+  colorTop = "#c3b8ff",
+  colorBottom = "#7a68e8",
+  barCount = 48,
+}) {
   const canvasRef = useRef(null);
   const rafRef = useRef(null);
   const idleTRef = useRef(0);
@@ -38,6 +46,12 @@ export default function Waveform({ analyser, color = "#6366f1", barCount = 48 })
 
       const barWidth = width / barCount;
       const mid = height / 2;
+      const barFillWidth = Math.max(1, barWidth * 0.6);
+
+      const gradient = ctx2d.createLinearGradient(0, 0, 0, height);
+      gradient.addColorStop(0, colorTop);
+      gradient.addColorStop(1, colorBottom);
+      ctx2d.fillStyle = gradient;
 
       if (analyser && dataArray) {
         analyser.getByteFrequencyData(dataArray);
@@ -49,15 +63,25 @@ export default function Waveform({ analyser, color = "#6366f1", barCount = 48 })
           const bin = dataArray[Math.floor((i / barCount) * dataArray.length)] || 0;
           amplitude = (bin / 255) * mid * 0.95;
         } else {
-          // Idle: slow, gentle sine sway so the hero stays alive between turns.
-          const phase = idleTRef.current * 0.03 + i * 0.35;
-          amplitude = (Math.sin(phase) * 0.5 + 0.5) * mid * 0.18;
+          // Idle: a bell-curve envelope (tall in the middle, short at the
+          // edges) that breathes in and out together, matching the design's
+          // resting soundwave rather than a wave traveling across the bars.
+          const distFromCenter = Math.abs(i - barCount / 2) / (barCount / 2);
+          const bellPeak = 1 - Math.pow(distFromCenter, 1.4);
+          const pulse = Math.sin(idleTRef.current * 0.04) * 0.5 + 0.5;
+          amplitude = (0.14 + bellPeak * 0.22 * pulse) * mid;
         }
         const barHeight = Math.max(2, amplitude);
-        const x = i * barWidth + barWidth * 0.2;
-        ctx2d.fillStyle = color;
-        ctx2d.globalAlpha = analyser ? 0.9 : 0.35;
-        ctx2d.fillRect(x, mid - barHeight, barWidth * 0.6, barHeight * 2);
+        const x = i * barWidth + (barWidth - barFillWidth) / 2;
+        ctx2d.globalAlpha = analyser ? 0.95 : 0.45;
+        const radius = Math.min(barFillWidth / 2, 3);
+        ctx2d.beginPath();
+        if (ctx2d.roundRect) {
+          ctx2d.roundRect(x, mid - barHeight, barFillWidth, barHeight * 2, radius);
+        } else {
+          ctx2d.rect(x, mid - barHeight, barFillWidth, barHeight * 2);
+        }
+        ctx2d.fill();
       }
 
       idleTRef.current += 1;
@@ -69,7 +93,7 @@ export default function Waveform({ analyser, color = "#6366f1", barCount = 48 })
       window.removeEventListener("resize", resize);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [analyser, color, barCount]);
+  }, [analyser, colorTop, colorBottom, barCount]);
 
   return <canvas ref={canvasRef} className="h-full w-full" />;
 }

@@ -79,11 +79,11 @@ function CorrectionCard({ correction }) {
   return (
     <div
       className={`rounded-xl border p-3 text-sm ${
-        isError ? "border-rose-100 bg-rose-50/60" : "border-sky-100 bg-sky-50/60"
+        isError ? "border-rose-500/25 bg-rose-500/10" : "border-sky-500/25 bg-sky-500/10"
       }`}
     >
-      <p className={`mb-1 text-xs font-semibold uppercase tracking-wide ${isError ? "text-rose-600" : "text-sky-600"}`}>
-        {isError ? "❌" : "💡"} {correction.category} · {correction.subtype.replaceAll("_", " ")}
+      <p className={`mb-1 text-xs font-semibold uppercase tracking-wide ${isError ? "text-rose-500" : "text-sky-500"}`}>
+        {correction.category} · {correction.subtype.replaceAll("_", " ")}
       </p>
       <p className="text-foreground/70">
         <span className="line-through decoration-rose-300">{correction.original}</span>

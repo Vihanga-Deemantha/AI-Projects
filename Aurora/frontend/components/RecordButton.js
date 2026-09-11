@@ -125,10 +125,10 @@ export default function RecordButton({ disabled, onRecordingComplete, onAnalyser
         e.preventDefault();
         stopRecording();
       }}
-      className={`flex h-20 w-20 select-none items-center justify-center rounded-full shadow-lg transition-all duration-150 focus:outline-none focus-visible:ring-4 focus-visible:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-40 ${
+      className={`flex h-20 w-20 select-none items-center justify-center rounded-full shadow-lg transition-all duration-150 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-40 ${
         recording
-          ? "scale-110 bg-rose-500 shadow-rose-300/50"
-          : "bg-indigo-600 hover:bg-indigo-500 shadow-indigo-300/50"
+          ? "scale-110 bg-[radial-gradient(circle_at_36%_30%,#ffd0da_0%,#fb7185_34%,#be123c_70%,#6b0f27_100%)] shadow-[0_0_34px_rgba(251,113,133,0.55)]"
+          : "aura-orb-breathe bg-[radial-gradient(circle_at_36%_30%,#b4a8ff_0%,#8b7cff_34%,#5541c9_70%,#2c1f6b_100%)] shadow-[0_0_34px_rgba(139,124,255,0.55)] hover:brightness-110"
       }`}
       aria-pressed={recording}
       aria-label={recording ? "Recording — release to send" : "Hold to talk"}

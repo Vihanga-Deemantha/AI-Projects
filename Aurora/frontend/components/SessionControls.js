@@ -42,7 +42,7 @@ export default function SessionControls({ phase, starting, canPause, onStart, on
             <button
               type="button"
               onClick={onEnd}
-              className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-600 transition hover:bg-rose-100"
+              className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-500 transition hover:bg-rose-500/15"
             >
               End Session
             </button>
@@ -55,9 +55,9 @@ export default function SessionControls({ phase, starting, canPause, onStart, on
 
 const PHASE_BADGE = {
   idle: { label: "Not started", dot: "bg-foreground/20", text: "text-foreground/50" },
-  active: { label: "Session active — ready", dot: "bg-emerald-500", text: "text-emerald-600" },
-  recording: { label: "Listening…", dot: "animate-pulse bg-rose-500", text: "text-rose-600" },
-  thinking: { label: "AURA is thinking…", dot: "animate-pulse bg-amber-500", text: "text-amber-600" },
-  speaking: { label: "AURA is speaking…", dot: "animate-pulse bg-emerald-500", text: "text-emerald-600" },
-  paused: { label: "Paused", dot: "bg-amber-500", text: "text-amber-600" },
+  active: { label: "Session active — ready", dot: "bg-emerald-500", text: "text-emerald-500" },
+  recording: { label: "Listening…", dot: "animate-pulse bg-rose-500", text: "text-rose-500" },
+  thinking: { label: "AURA is thinking…", dot: "animate-pulse bg-amber-500", text: "text-amber-500" },
+  speaking: { label: "AURA is speaking…", dot: "animate-pulse bg-emerald-500", text: "text-emerald-500" },
+  paused: { label: "Paused", dot: "bg-amber-500", text: "text-amber-500" },
 };

@@ -36,8 +36,8 @@ function Bubble({ message }) {
       <div
         className={`max-w-sm rounded-2xl border px-4 py-2.5 text-sm shadow-sm ${
           isUser
-            ? "rounded-br-sm border-brand bg-brand text-white"
-            : "rounded-bl-sm border-indigo-200 bg-indigo-100 text-indigo-950"
+            ? "rounded-br-sm border-brand bg-linear-to-br from-brand to-brand-dark text-white"
+            : "rounded-bl-sm border-brand/20 bg-brand-soft text-foreground"
         } ${message.pending ? "opacity-60" : ""}`}
       >
         <p>{message.text || (message.pending ? "…" : "")}</p>
