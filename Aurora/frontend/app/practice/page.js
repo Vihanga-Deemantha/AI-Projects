@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import NavBar from "@/components/NavBar";
+import AppSidebar from "@/components/AppSidebar";
 import SessionSetup from "@/components/SessionSetup";
 import SessionControls from "@/components/SessionControls";
 import StatsRow from "@/components/StatsRow";
@@ -235,17 +235,17 @@ function Practice() {
   const canPause = phase === "speaking" || phase === "paused";
 
   return (
-    <div className="flex min-h-screen flex-1 flex-col">
-      <NavBar />
+    <div className="flex min-h-screen flex-1">
+      <AppSidebar />
 
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-8 py-8">
         <header>
-          <h1 className="text-2xl font-bold">AI Speaking Coach</h1>
+          <h1 className="font-display text-2xl font-bold">AI Speaking Coach</h1>
           <p className="text-sm text-foreground/50">Practice a real conversation. Get grammar and vocabulary feedback as you go.</p>
         </header>
 
         {error && (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-500">
             {error}
           </div>
         )}

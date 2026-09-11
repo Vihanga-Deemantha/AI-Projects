@@ -4,13 +4,17 @@ import Waveform from "./Waveform";
 import RecordButton from "./RecordButton";
 
 /**
- * The "Live Voice Output" hero: a waveform with the push-to-talk mic
- * centered in it. The same Waveform component reacts to whichever
- * AnalyserNode is live — the mic while recording (red), or the TTS
- * playback queue while AURA replies (indigo).
+ * The push-to-talk orb + soundwave. Unlike the earlier version, the orb and
+ * the soundwave strip are separate, non-overlapping blocks (stacked
+ * vertically) rather than the waveform sitting full-bleed behind the button
+ * — so there's no pointer-events trap between them anymore.
+ *
+ * The same Waveform component reacts to whichever AnalyserNode is live —
+ * the mic while recording (rose), or the TTS playback queue while AURA
+ * replies (violet/brand).
  *
  * `micAnalyser` is lifted up to the parent (rather than owned locally) so
- * the session status bar can show "Listening…" in sync with this waveform.
+ * the session status bar can show "Listening…" in sync with this hero.
  */
 export default function WaveformHero({
   recordDisabled,
@@ -30,9 +34,14 @@ export default function WaveformHero({
   else if (paused) statusLabel = "Paused";
   else if (isPlaying) statusLabel = "AURA is speaking…";
 
+  const colorTop = micAnalyser ? "#ffd0da" : "#c3b8ff";
+  const colorBottom = micAnalyser ? "#fb7185" : "#7a68e8";
+
   return (
-    <div className="flex flex-col items-center gap-4 rounded-2xl border border-panel-border bg-panel p-6">
-      <div className="flex items-center gap-2 text-sm font-medium text-foreground/60">
+    <div className="relative flex flex-col items-center gap-5 overflow-hidden rounded-2xl border border-panel-border bg-panel/60 p-6">
+      <div className="pointer-events-none absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-brand/15 blur-3xl" />
+
+      <div className="relative flex items-center gap-2 text-sm font-medium text-foreground/60">
         <span
           className={`h-2.5 w-2.5 rounded-full ${
             micAnalyser
@@ -45,18 +54,17 @@ export default function WaveformHero({
         {statusLabel}
       </div>
 
-      <div className="relative flex h-40 w-full items-center justify-center">
-        {/* pointer-events-none is load-bearing: without it this absolutely
-            positioned canvas sits in front of the RecordButton in the paint
-            order and silently swallows every click/press meant for it. */}
-        <div className="pointer-events-none absolute inset-0">
-          <Waveform analyser={activeAnalyser} color={micAnalyser ? "#f43f5e" : "#6366f1"} />
-        </div>
+      <div className="relative flex h-33 w-33 items-center justify-center">
+        <div className="aura-ring-spin pointer-events-none absolute -inset-3.5 rounded-full bg-[conic-gradient(from_0deg,transparent,rgba(139,124,255,0.5),transparent_40%)]" />
         <RecordButton
           disabled={recordDisabled || isProcessing}
           onAnalyser={onAnalyser}
           onRecordingComplete={onRecordingComplete}
         />
+      </div>
+
+      <div className="relative h-10 w-full max-w-sm">
+        <Waveform analyser={activeAnalyser} colorTop={colorTop} colorBottom={colorBottom} barCount={40} />
       </div>
     </div>
   );

@@ -4,8 +4,8 @@
 export default function StatsRow({ turns, sessionSeconds, correctionsCount }) {
   return (
     <div className="grid grid-cols-3 gap-4">
-      <StatCard icon={<TurnsIcon />} value={turns} label="Turns" tone="indigo" />
-      <StatCard icon={<ClockIcon />} value={formatDuration(sessionSeconds)} label="Session Time" tone="violet" />
+      <StatCard icon={<TurnsIcon />} value={turns} label="Turns" tone="brand" />
+      <StatCard icon={<ClockIcon />} value={formatDuration(sessionSeconds)} label="Session Time" tone="sky" />
       <StatCard icon={<FlagIcon />} value={correctionsCount} label="Corrections Flagged" tone="rose" />
     </div>
   );
@@ -13,9 +13,9 @@ export default function StatsRow({ turns, sessionSeconds, correctionsCount }) {
 
 function StatCard({ icon, value, label, tone }) {
   const toneClasses = {
-    indigo: "bg-indigo-50 text-indigo-600",
-    violet: "bg-violet-50 text-violet-600",
-    rose: "bg-rose-50 text-rose-600",
+    brand: "bg-brand-soft text-brand",
+    sky: "bg-sky-500/10 text-sky-500",
+    rose: "bg-rose-500/10 text-rose-500",
   }[tone];
 
   return (
@@ -24,7 +24,7 @@ function StatCard({ icon, value, label, tone }) {
         {icon}
       </div>
       <div>
-        <p className="text-xl font-bold leading-tight">{value}</p>
+        <p className="font-display text-xl font-bold leading-tight">{value}</p>
         <p className="text-xs text-foreground/50">{label}</p>
       </div>
     </div>

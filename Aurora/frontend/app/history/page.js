@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import AuthGuard from "@/components/AuthGuard";
-import NavBar from "@/components/NavBar";
+import AppSidebar from "@/components/AppSidebar";
 import { getSessions } from "@/lib/api";
 
 const PAGE_SIZE = 20;
@@ -11,8 +11,8 @@ const PAGE_SIZE = 20;
 export default function HistoryPage() {
   return (
     <AuthGuard>
-      <div className="flex min-h-screen flex-1 flex-col">
-        <NavBar />
+      <div className="flex min-h-screen flex-1">
+        <AppSidebar />
         <SessionList />
       </div>
     </AuthGuard>
@@ -46,9 +46,9 @@ function SessionList() {
   }, [offset]);
 
   return (
-    <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold">Speech History</h1>
+    <main className="mx-auto w-full max-w-4xl flex-1 px-10 py-9">
+      <header className="mb-7">
+        <h1 className="font-display text-[28px] font-bold">Speech History</h1>
         <p className="text-sm text-foreground/50">
           Every past session, with the feedback you received.
         </p>
@@ -57,7 +57,7 @@ function SessionList() {
       {status === "loading" && <p className="text-sm text-foreground/40">Loading sessions…</p>}
 
       {status === "error" && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-500">
           {error}
         </div>
       )}
@@ -67,7 +67,7 @@ function SessionList() {
           <p className="text-sm text-foreground/50">You haven&apos;t practised yet.</p>
           <Link
             href="/practice"
-            className="mt-4 inline-block rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-dark"
+            className="mt-4 inline-block rounded-full bg-linear-to-br from-brand to-brand-dark px-6 py-3 font-display text-sm font-bold text-white shadow-lg shadow-brand/25 transition hover:brightness-110"
           >
             Start your first session
           </Link>
@@ -81,22 +81,24 @@ function SessionList() {
               <li key={s.id}>
                 <Link
                   href={`/history/${s.id}`}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-panel-border bg-panel p-4 transition hover:border-brand/40"
+                  className="flex flex-wrap items-center gap-5 rounded-2xl border border-panel-border bg-panel p-4.5 transition hover:border-brand/35"
                 >
-                  <div>
+                  <span className="h-12 w-12 shrink-0 rounded-[14px] bg-[radial-gradient(circle_at_36%_30%,#b4a8ff,#8b7cff_34%,#5541c9_90%)] shadow-[0_0_18px_rgba(139,124,255,0.35)]" />
+                  <div className="min-w-40 flex-1">
                     <p className="font-semibold capitalize">
                       {s.scenario} · {s.style}
                     </p>
-                    <p className="text-xs text-foreground/45">
+                    <p className="mt-0.5 text-xs text-foreground/45">
                       {formatDate(s.started_at)} · voice: {s.voice}
                       {s.is_complete ? "" : " · unfinished"}
                     </p>
                   </div>
-                  <div className="flex items-center gap-5 text-sm">
+                  <div className="flex items-center gap-6 text-sm">
                     <Stat value={s.turn_count} label="turns" />
-                    <Stat value={s.correction_count} label="corrections" />
+                    <Stat value={s.correction_count} label="corrections" tone="rose" />
                     <Stat value={formatDuration(s.duration_seconds)} label="duration" />
                   </div>
+                  <ChevronIcon className="ml-1 h-4 w-4 text-foreground/25" />
                 </Link>
               </li>
             ))}
@@ -108,7 +110,7 @@ function SessionList() {
                 type="button"
                 onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
                 disabled={offset === 0}
-                className="rounded-xl border border-panel-border px-4 py-2 transition hover:border-brand/40 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-full border border-panel-border px-5 py-2.5 transition hover:border-brand/40 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Previous
               </button>
@@ -119,7 +121,7 @@ function SessionList() {
                 type="button"
                 onClick={() => setOffset(offset + PAGE_SIZE)}
                 disabled={offset + PAGE_SIZE >= data.total}
-                className="rounded-xl border border-panel-border px-4 py-2 transition hover:border-brand/40 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-full border border-brand/35 px-5 py-2.5 font-semibold text-brand transition hover:bg-brand-soft disabled:cursor-not-allowed disabled:border-panel-border disabled:font-normal disabled:text-foreground disabled:opacity-40"
               >
                 Next
               </button>
@@ -131,12 +133,20 @@ function SessionList() {
   );
 }
 
-function Stat({ value, label }) {
+function Stat({ value, label, tone }) {
   return (
     <div className="text-center">
-      <p className="font-semibold">{value}</p>
+      <p className={`font-display font-bold ${tone === "rose" ? "text-rose-500" : ""}`}>{value}</p>
       <p className="text-[10px] uppercase tracking-wide text-foreground/40">{label}</p>
     </div>
+  );
+}
+
+function ChevronIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
+      <path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
