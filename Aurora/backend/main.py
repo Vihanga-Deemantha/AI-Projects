@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import ENVIRONMENT
 from backend.database import engine, Base
-from backend.routers import health, conversation, analysis, config, auth, history
+from backend.routers import health, conversation, analysis, config, auth, google, history
 
 
 @asynccontextmanager
@@ -68,6 +68,7 @@ app.add_middleware(
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(health.router)
 app.include_router(auth.router)
+app.include_router(google.router)
 app.include_router(conversation.router)
 app.include_router(analysis.router)
 app.include_router(config.router)

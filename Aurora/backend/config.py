@@ -38,6 +38,29 @@ JWT_SECRET: str = os.environ["JWT_SECRET"]
 JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "10080"))  # 7 days
 
+# ── Google OAuth (Phase 3c) ─────────────────────────────────────────────────
+# Soft-optional, unlike JWT_SECRET/GROQ_API_KEY above: leaving these unset
+# must not crash the whole backend (practice/history are unrelated to Google
+# sign-in) — routers/google.py checks for a non-empty value itself and 503s
+# with a clear message the first time a Google endpoint is actually hit.
+GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI: str = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback")
+
+# ── Email / OTP — Resend (Phase 3c) ─────────────────────────────────────────
+RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
+EMAIL_FROM: str = os.getenv("EMAIL_FROM", "noreply@aura.app")
+
+# ── Avatar storage — Cloudinary (Phase 3c) ──────────────────────────────────
+CLOUDINARY_CLOUD_NAME: str = os.getenv("CLOUDINARY_CLOUD_NAME", "")
+CLOUDINARY_API_KEY: str = os.getenv("CLOUDINARY_API_KEY", "")
+CLOUDINARY_API_SECRET: str = os.getenv("CLOUDINARY_API_SECRET", "")
+
+# Where the frontend lives — used to build the redirect URL after Google OAuth
+# completes (the backend can't render the SPA itself, so it bounces the
+# browser back with the token in the query string).
+FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
 # ── Whisper ──────────────────────────────────────────────────────────────────
 WHISPER_MODEL_SIZE: str = os.getenv("WHISPER_MODEL_SIZE", "base.en")
 WHISPER_DEVICE: str = os.getenv("WHISPER_DEVICE", "cpu")

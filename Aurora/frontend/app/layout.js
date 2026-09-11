@@ -25,6 +25,7 @@ export default function RootLayout({ children }) {
     <html
       lang="en"
       className={`${bodoniModa.variable} ${plusJakartaSans.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
       <head>
         {/* Sets data-theme from localStorage before first paint — must run

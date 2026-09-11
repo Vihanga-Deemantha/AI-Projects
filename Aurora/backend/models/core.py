@@ -32,10 +32,34 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     # Nullable so pre-auth anonymous rows survive the migration. A row with a
-    # NULL hash simply can't log in — verify_password() rejects it.
+    # NULL hash simply can't log in — verify_password() rejects it. Also NULL
+    # for Google-only accounts that have never set a password.
     password_hash: Mapped[str | None] = mapped_column(
         String(255), nullable=True,
-        comment="bcrypt hash; NULL for legacy anonymous users"
+        comment="bcrypt hash; NULL for legacy anonymous users or Google-only accounts"
+    )
+
+    # Profile
+    avatar_url: Mapped[str | None] = mapped_column(
+        String(500), nullable=True, comment="Cloudinary CDN URL"
+    )
+    bio: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+    # Google OAuth — NULL for accounts that have never linked Google
+    google_id: Mapped[str | None] = mapped_column(
+        String(100), unique=True, nullable=True,
+        comment="Google subject ID; present on OAuth-created or linked accounts"
+    )
+
+    # Password reset OTP — all three NULL/0 when no reset is pending
+    reset_otp_hash: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, comment="bcrypt hash of the 6-digit OTP"
+    )
+    reset_otp_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    reset_otp_attempts: Mapped[int] = mapped_column(
+        Integer, default=0, comment="Failed OTP attempts this reset cycle; auto-expire after 3"
     )
 
     # User preferences — stored here so they persist across sessions
@@ -52,6 +76,17 @@ class User(Base):
     conversations: Mapped[list["Conversation"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+
+    # Plain @property, not a mapped column — from_attributes=True reads these
+    # via getattr() same as any other field, so AuthUser.model_validate(user)
+    # picks them up without the router ever touching password_hash/google_id.
+    @property
+    def has_password(self) -> bool:
+        return self.password_hash is not None
+
+    @property
+    def google_linked(self) -> bool:
+        return self.google_id is not None
 
     def __repr__(self) -> str:
         return f"<User id={self.id!r} email={self.email!r}>"

@@ -114,18 +114,21 @@ export default function RecordButton({ disabled, onRecordingComplete, onAnalyser
     <button
       type="button"
       disabled={disabled || requesting}
-      onMouseDown={startRecording}
-      onMouseUp={stopRecording}
-      onMouseLeave={() => recording && stopRecording()}
-      onTouchStart={(e) => {
-        e.preventDefault();
+      // Pointer Events (not separate mouse/touch handlers) so mouse, touch,
+      // and pen all go through one path with no synthetic-mouse-after-touch
+      // double-fire, and setPointerCapture keeps the up/cancel event routed
+      // here even if a finger drifts off the button mid-hold. touch-none
+      // (below) stops the browser from treating the hold as a page-scroll
+      // gesture, which is what onTouchStart's now-ineffective preventDefault
+      // was trying (and failing, since React's touch listeners are passive)
+      // to do.
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture?.(e.pointerId);
         startRecording();
       }}
-      onTouchEnd={(e) => {
-        e.preventDefault();
-        stopRecording();
-      }}
-      className={`flex h-20 w-20 select-none items-center justify-center rounded-full shadow-lg transition-all duration-150 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-40 ${
+      onPointerUp={stopRecording}
+      onPointerCancel={stopRecording}
+      className={`flex h-20 w-20 touch-none select-none items-center justify-center rounded-full shadow-lg transition-all duration-150 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-40 ${
         recording
           ? "scale-110 bg-[radial-gradient(circle_at_36%_30%,#ffd0da_0%,#fb7185_34%,#be123c_70%,#6b0f27_100%)] shadow-[0_0_34px_rgba(251,113,133,0.55)]"
           : "aura-orb-breathe bg-[radial-gradient(circle_at_36%_30%,#b4a8ff_0%,#8b7cff_34%,#5541c9_70%,#2c1f6b_100%)] shadow-[0_0_34px_rgba(139,124,255,0.55)] hover:brightness-110"
