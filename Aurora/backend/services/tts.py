@@ -26,7 +26,7 @@ from backend.config import VOICES_DIR
 HARD_BOUNDARY = re.compile(r'[.!?](\s|$)')
 SOFT_BOUNDARY = re.compile(r'[,;:](\s|$)')
 MIN_CHARS = 45           # Min chars before a hard boundary (.!?) triggers a split.
-                         # Keeps short phrases ('Ahoy, mate!') as one chunk — better prosody.
+                         # Keeps short phrases ('Sounds good, thanks!') as one chunk — better prosody.
                          # Only genuinely multi-sentence replies get chunked for streaming.
 SOFT_MIN_CHARS = 120     # Safety valve: if a sentence has no period for 120+ chars,
                          # split on a comma to prevent hitting Piper's max length limit.
@@ -34,6 +34,8 @@ SOFT_MIN_CHARS = 120     # Safety valve: if a sentence has no period for 120+ ch
 
 # Map of voice IDs to their .onnx filenames in the voices/ directory
 VOICE_FILES: dict[str, str] = {
+    "eida":   "en_US-kristin-medium.onnx",     # 60 MB  — female, American (calm)
+    "maya":   "en_US-hfc_female-medium.onnx",  # 60 MB  — female, American (upbeat)
     "amy":    "en_US-amy-medium.onnx",   # 60 MB  — female, American (friendly)
     "ryan":   "en_US-ryan-high.onnx",    # 115 MB — male, American (high quality)
     "alan":   "en_GB-alan-medium.onnx",  # 60 MB  — male, British (professional)

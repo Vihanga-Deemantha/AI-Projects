@@ -10,6 +10,8 @@ import ConversationView from "@/components/ConversationView";
 import CorrectionsPanel from "@/components/CorrectionsPanel";
 import LatencyBadge from "@/components/LatencyBadge";
 import { endSession, getOptions, startSession, streamMessage } from "@/lib/api";
+import { getStoredUser, updateProfile } from "@/lib/auth";
+import { getCompanion } from "@/lib/characters";
 import { createAudioQueue } from "@/lib/audioQueue";
 import AuthGuard from "@/components/AuthGuard";
 
@@ -50,9 +52,13 @@ function Practice() {
     getOptions()
       .then((opts) => {
         setOptions(opts);
+        // Start from the companion/style saved on the profile when they're
+        // still valid options; otherwise fall back to the server defaults.
+        const saved = getStoredUser();
+        const valid = (list, id, fallback) => (list.some((x) => x.id === id) ? id : fallback);
         setSetupValue({
-          voice: opts.defaults.voice,
-          style: opts.defaults.style,
+          voice: valid(opts.voices, saved?.preferred_voice, opts.defaults.voice),
+          style: valid(opts.styles, saved?.preferred_style, opts.defaults.style),
           scenario: opts.defaults.scenario,
         });
       })
@@ -79,6 +85,21 @@ function Practice() {
       setPlaybackAnalyser(queue.analyser);
     }
     return audioQueueRef.current;
+  }
+
+  // Picking a companion or style also saves it as the profile preference, so
+  // it is the default next time and shows in the sidebar. Fire-and-forget: a
+  // failed save shouldn't block starting a session.
+  function handleSetupChange(next) {
+    const voiceChanged = next.voice !== setupValue.voice;
+    const styleChanged = next.style !== setupValue.style;
+    setSetupValue(next);
+    if (voiceChanged || styleChanged) {
+      updateProfile({
+        preferredVoice: voiceChanged ? next.voice : undefined,
+        preferredStyle: styleChanged ? next.style : undefined,
+      }).catch(() => {});
+    }
   }
 
   /**
@@ -234,34 +255,40 @@ function Practice() {
   }
   const canPause = phase === "speaking" || phase === "paused";
 
+  const companion = getCompanion(setupValue.voice);
+  const scenarioLabel = options?.scenarios.find((x) => x.id === setupValue.scenario)?.label;
+  const awaitingReply = isProcessing && !messages.some((m) => m.pending);
+
   return (
     <div className="flex min-h-screen flex-1 flex-col lg:flex-row">
       <AppSidebar />
 
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 px-5 py-6 sm:gap-6 sm:px-8 sm:py-8">
-        <header>
-          <h1 className="font-display text-2xl font-bold">AI Speaking Coach</h1>
-          <p className="text-sm text-foreground/50">Practice a real conversation. Get grammar and vocabulary feedback as you go.</p>
+      <main className="min-w-0 flex-1 px-5 py-6 sm:px-8 sm:py-8 lg:px-10 lg:pt-9 lg:pb-14">
+        <header className="flex flex-wrap items-end justify-between gap-4.5">
+          <div>
+            <div className="text-[10px] font-bold tracking-[0.22em] text-soft uppercase">Session</div>
+            <h1 className="mt-2.5 font-display text-[clamp(30px,3.6vw,46px)] leading-none font-bold">Practise English</h1>
+          </div>
+          <SessionControls
+            phase={phase}
+            starting={starting}
+            canPause={canPause}
+            onStart={handleStart}
+            onTogglePause={handleTogglePause}
+            onEnd={handleEndSession}
+          />
         </header>
 
         {error && (
-          <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-500">
+          <div role="alert" className="mt-5 border border-brand bg-brand-soft px-4 py-3 text-sm">
             {error}
           </div>
         )}
 
-        <SessionControls
-          phase={phase}
-          starting={starting}
-          canPause={canPause}
-          onStart={handleStart}
-          onTogglePause={handleTogglePause}
-          onEnd={handleEndSession}
-        />
-
-        <div className="grid flex-1 grid-cols-1 gap-6 lg:grid-cols-[1.2fr_1fr]">
-          <div className="flex flex-col gap-6">
+        <div className="mt-6.5 grid gap-5.5 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+          <div className="flex min-w-0 flex-col gap-4.5">
             <WaveformHero
+              companionId={companion.id}
               isProcessing={isProcessing}
               isPlaying={isPlaying}
               paused={paused}
@@ -282,21 +309,24 @@ function Practice() {
             <SessionSetup
               options={options}
               value={setupValue}
-              onChange={setSetupValue}
+              onChange={handleSetupChange}
               sessionActive={sessionActive}
             />
           </div>
 
-          <div className="flex flex-col gap-6">
-            <ConversationView messages={messages} />
-            <div className="h-64 shrink-0">
-              <CorrectionsPanel
-                key={session?.conversationId ?? "no-session"}
-                conversationId={session?.conversationId}
-                refreshKey={correctionsRefreshKey}
-                onCountChange={setCorrectionsCount}
-              />
-            </div>
+          <div className="flex min-w-0 flex-col gap-5.5">
+            <ConversationView
+              messages={messages}
+              companionId={companion.id}
+              thinking={awaitingReply}
+              scenarioLabel={scenarioLabel}
+            />
+            <CorrectionsPanel
+              key={session?.conversationId ?? "no-session"}
+              conversationId={session?.conversationId}
+              refreshKey={correctionsRefreshKey}
+              onCountChange={setCorrectionsCount}
+            />
           </div>
         </div>
       </main>

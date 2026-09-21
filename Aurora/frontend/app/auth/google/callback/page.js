@@ -28,7 +28,7 @@ export default function GoogleCallbackPage() {
   return (
     <div className="flex min-h-screen flex-1 flex-col items-center justify-center gap-4">
       <div className="h-10 w-10 animate-spin rounded-full border-2 border-panel-border border-t-brand" />
-      <p className="text-sm text-foreground/50">Signing you in…</p>
+      <p className="text-sm text-mute">Signing you in…</p>
     </div>
   );
 }

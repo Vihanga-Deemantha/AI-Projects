@@ -29,7 +29,7 @@ def get_options():
             for vid, v in VOICES.items()
         ],
         "styles": [
-            {"id": sid, "label": s["label"]}
+            {"id": sid, "label": s["label"], "desc": s.get("desc", "")}
             for sid, s in STYLES.items()
         ],
         "scenarios": [

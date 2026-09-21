@@ -1,27 +1,55 @@
 @import "tailwindcss";
 
-/* AURA Midnight — dark, primary/default theme */
+/* AURA v2 — light palette is the base. Dark applies when the OS prefers it
+   (until the user picks explicitly) or when <html data-theme="dark"> is set. */
 :root {
-  --background: #08060d;
-  --surface: #0c0916;
-  --panel: #14101f;
-  --panel-border: #211a36;
-  --foreground: #f5f2fb;
-  --brand: #8b7cff;
-  --brand-dark: #6f5cf0;
-  --brand-soft: #1c1633;
-}
-
-/* AURA Clarity — light theme, opt-in via [data-theme="light"] on <html> */
-:root[data-theme="light"] {
-  --background: #faf8fc;
+  --background: #f2f7fb;
   --surface: #ffffff;
   --panel: #ffffff;
-  --panel-border: #e8e1f5;
-  --foreground: #221c33;
-  --brand: #6a4fe0;
-  --brand-dark: #5138c4;
-  --brand-soft: #ede8fb;
+  --panel-border: #d6e6f2;
+  --foreground: #0d0d0d;
+  --soft: #2b2b2b;
+  --mute: #6b6b6b;
+  --field: #eaf2f9;
+  --brand: #40719e;
+  --brand-dark: #2f5a82;
+  --brand-soft: #d6e6f2;
+  --on-brand: #ffffff;
+  --card-shadow: 0 30px 80px rgba(13, 13, 13, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --background: #0d0d0d;
+    --surface: #2b2b2b;
+    --panel: #2b2b2b;
+    --panel-border: #3a3a3a;
+    --foreground: #e6e6e6;
+    --soft: #c4c4c4;
+    --mute: #a8a8a8;
+    --field: #242424;
+    --brand: #6fa0cb;
+    --brand-dark: #8db4d6;
+    --brand-soft: #1a1a1a;
+    --on-brand: #0d0d0d;
+    --card-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  }
+}
+
+:root[data-theme="dark"] {
+  --background: #0d0d0d;
+  --surface: #2b2b2b;
+  --panel: #2b2b2b;
+  --panel-border: #3a3a3a;
+  --foreground: #e6e6e6;
+  --soft: #c4c4c4;
+  --mute: #a8a8a8;
+  --field: #242424;
+  --brand: #6fa0cb;
+  --brand-dark: #8db4d6;
+  --brand-soft: #1a1a1a;
+  --on-brand: #0d0d0d;
+  --card-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
 }
 
 @theme inline {
@@ -30,58 +58,102 @@
   --color-panel: var(--panel);
   --color-panel-border: var(--panel-border);
   --color-foreground: var(--foreground);
+  --color-soft: var(--soft);
+  --color-mute: var(--mute);
+  --color-field: var(--field);
   --color-brand: var(--brand);
   --color-brand-dark: var(--brand-dark);
   --color-brand-soft: var(--brand-soft);
-  --font-display: var(--font-bodoni, Georgia, "Times New Roman", serif);
+  --color-on-brand: var(--on-brand);
+  --font-display: var(--font-playfair, Georgia, "Times New Roman", serif);
   --font-sans: var(--font-jakarta, ui-sans-serif, system-ui, sans-serif);
 }
 
-* {
-  border-color: var(--panel-border);
+/* Base rules live in @layer base so Tailwind's utilities (border-brand,
+   text-background, ...) can override them — unlayered CSS would beat every
+   utility regardless of specificity. */
+@layer base {
+  * {
+    border-color: var(--panel-border);
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--mute);
+  }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans);
+/* ── Motion ─────────────────────────────────────────────────────────────── */
+
+@keyframes aura-bar {
+  0%, 100% { transform: scaleY(0.18); }
+  50% { transform: scaleY(1); }
+}
+@keyframes aura-blink {
+  0%, 93%, 100% { opacity: 1; }
+  96% { opacity: 0.1; }
+}
+@keyframes aura-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+@keyframes aura-rise {
+  from { opacity: 0; transform: translateY(34px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes aura-slide-l {
+  from { opacity: 0; transform: translateX(-46px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes aura-figure-in {
+  from { opacity: 0; transform: translateY(60px) scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes aura-char-in {
+  from { opacity: 0; transform: translateY(34px) scale(0.965); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes aura-card-in {
+  from { opacity: 0; transform: translateY(22px); }
+  to { opacity: 1; transform: none; }
 }
 
-/* Ambient glow — theme-aware via the --brand token, so it reads right in
-   both Midnight (glows on near-black) and Clarity (soft tint on off-white)
-   without any theme branching. */
-.aura-glow-bg {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse 640px 640px at 12% -8%, color-mix(in oklab, var(--brand) 16%, transparent), transparent 70%),
-    radial-gradient(ellipse 560px 560px at 88% 30%, color-mix(in oklab, var(--brand) 10%, transparent), transparent 70%);
+.aura-float { animation: aura-float 5s ease-in-out infinite; }
+.aura-blink { animation: aura-blink 3.4s linear infinite; }
+.aura-char-in { animation: aura-char-in 0.75s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.aura-card-in { animation: aura-card-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Scroll-driven entrances. The default state is VISIBLE — the timeline only
+   animates where the browser supports it, so content can never be stranded
+   invisible on browsers without animation-timeline. */
+@supports (animation-timeline: view()) {
+  .aura-rise {
+    animation: aura-rise linear both;
+    animation-timeline: view();
+    animation-range: entry 4% entry 46%;
+  }
+  .aura-slide {
+    animation: aura-slide-l linear both;
+    animation-timeline: view();
+    animation-range: entry 4% entry 46%;
+  }
+  .aura-figure {
+    animation: aura-figure-in linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 42%;
+  }
 }
 
-/* Orb + soundwave motion, shared across the landing hero, auth panels, and
-   the practice screen's push-to-talk orb. */
-@keyframes orb-breathe {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.05); }
+@media (prefers-reduced-motion: reduce) {
+  .aura-float, .aura-blink, .aura-char-in, .aura-card-in { animation: none; }
+  .aura-rise, .aura-slide, .aura-figure { animation: none; }
 }
-@keyframes orb-ring-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-@keyframes orb-ring-spin-rev {
-  from { transform: rotate(360deg); }
-  to { transform: rotate(0deg); }
-}
-@keyframes aura-soundwave {
-  0%, 100% { transform: scaleY(0.22); opacity: 0.55; }
-  50% { transform: scaleY(var(--peak, 1)); opacity: 1; }
-}
-
-.aura-orb-breathe { animation: orb-breathe 4.5s ease-in-out infinite; }
-.aura-ring-spin { animation: orb-ring-spin 12s linear infinite; }
-.aura-ring-spin-rev { animation: orb-ring-spin-rev 20s linear infinite; }
 
 /* OTP wrong-code feedback + multi-step flow transitions (forgot-password). */
 @keyframes aura-shake {

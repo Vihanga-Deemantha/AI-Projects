@@ -1,18 +1,22 @@
 "use client";
 
+import { faceSrc, getCompanion } from "@/lib/characters";
+
+const heading = "text-[10px] font-bold tracking-[0.2em] text-soft uppercase";
+const rowLabel = "text-[11px] font-bold tracking-[0.14em] text-mute uppercase";
+
 /**
- * Voice / style / scenario picker, sourced from GET /api/config/options
- * (backend/routers/config.py) so this never hand-duplicates personalities.py.
+ * Companion / speaking style / scenario picker, sourced from
+ * GET /api/config/options (backend/routers/config.py) so this never
+ * hand-duplicates personalities.py.
  *
- * Pre-session: full picker (starting the session itself is handled by
- * SessionControls — you can pick options here first, or just hold the mic
- * and start talking with the current selection / defaults).
- * In-session: collapses to a compact read-only summary bar.
+ * Pre-session: the full picker. In-session: collapses to a compact read-only
+ * summary so the choices can't change under a running conversation.
  */
 export default function SessionSetup({ options, value, onChange, sessionActive }) {
   if (!options) {
     return (
-      <div className="rounded-2xl border border-panel-border bg-panel p-5 text-sm text-foreground/50">
+      <div className="border border-panel-border bg-panel p-5 text-sm text-mute">
         Loading session options…
       </div>
     );
@@ -23,73 +27,95 @@ export default function SessionSetup({ options, value, onChange, sessionActive }
     const style = options.styles.find((s) => s.id === value.style);
     const scenario = options.scenarios.find((s) => s.id === value.scenario);
     return (
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-panel-border bg-panel px-5 py-3 text-sm">
-        <SummaryPill label="Voice" value={voice?.label} />
+      <div className="flex flex-wrap items-center gap-2 border border-panel-border bg-panel px-5 py-3.5">
+        <SummaryPill label="Companion" value={voice?.label} />
         <SummaryPill label="Style" value={style?.label} />
         <SummaryPill label="Scenario" value={scenario?.label} />
       </div>
     );
   }
 
-  return (
-    <div className="flex flex-col gap-5 rounded-2xl border border-panel-border bg-panel p-5">
-      <Picker
-        title="Voice"
-        items={options.voices}
-        selected={value.voice}
-        onSelect={(id) => onChange({ ...value, voice: id })}
-        renderExtra={(item) => item.desc}
-      />
-      <Picker
-        title="Speaking Style"
-        items={options.styles}
-        selected={value.style}
-        onSelect={(id) => onChange({ ...value, style: id })}
-      />
-      <Picker
-        title="Scenario"
-        items={options.scenarios}
-        selected={value.scenario}
-        onSelect={(id) => onChange({ ...value, scenario: id })}
-      />
-    </div>
-  );
-}
+  const activeStyle = options.styles.find((s) => s.id === value.style);
 
-function Picker({ title, items, selected, onSelect, renderExtra }) {
   return (
-    <div>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-foreground/40">{title}</p>
-      <div className="flex flex-wrap gap-2">
-        {items.map((item) => {
-          const active = item.id === selected;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onSelect(item.id)}
-              className={`rounded-xl border px-3 py-2 text-left text-sm transition ${
-                active
-                  ? "border-brand bg-brand/10 text-brand"
-                  : "border-panel-border text-foreground/70 hover:border-brand/30"
-              }`}
-            >
-              <span className="font-medium">{item.label}</span>
-              {renderExtra && (
-                <span className="ml-1 text-xs text-foreground/40">{renderExtra(item)}</span>
-              )}
-            </button>
-          );
-        })}
+    <div className="border border-panel-border bg-panel p-5">
+      <div className={heading}>Session setup</div>
+
+      <div className="mt-4">
+        <div className={rowLabel}>Companion</div>
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          {options.voices.map((v) => {
+            const active = v.id === value.voice;
+            return (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => onChange({ ...value, voice: v.id })}
+                aria-pressed={active}
+                className={`flex cursor-pointer items-center gap-2 border py-1.5 pr-3.25 pl-1.5 text-[12.5px] whitespace-nowrap transition ${
+                  active ? "border-brand bg-brand-soft font-bold" : "border-panel-border font-medium hover:border-brand"
+                }`}
+              >
+                <span
+                  role="img"
+                  aria-label={v.label}
+                  className="h-5.5 w-5.5 flex-none rounded-full bg-brand-soft bg-cover bg-top"
+                  style={{ backgroundImage: `url('${faceSrc(getCompanion(v.id).id, "neutral")}')` }}
+                />
+                {v.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mt-4.5">
+        <div className={rowLabel}>Speaking style</div>
+        <div className="mt-2.5 flex flex-wrap">
+          {options.styles.map((s) => (
+            <Chip key={s.id} active={s.id === value.style} onClick={() => onChange({ ...value, style: s.id })}>
+              {s.label}
+            </Chip>
+          ))}
+        </div>
+        <p className="mt-2.5 text-[11.5px] leading-normal text-mute">
+          {activeStyle?.desc ? `${activeStyle.desc} — ` : ""}changes vocabulary &amp; phrasing, not the voice&apos;s accent.
+        </p>
+      </div>
+
+      <div className="mt-4.5">
+        <div className={rowLabel}>Scenario</div>
+        <div className="mt-2.5 flex flex-wrap">
+          {options.scenarios.map((s) => (
+            <Chip key={s.id} active={s.id === value.scenario} onClick={() => onChange({ ...value, scenario: s.id })}>
+              {s.label}
+            </Chip>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
+function Chip({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`-mr-px -mb-px cursor-pointer border px-3.5 py-2.25 text-[12.5px] whitespace-nowrap transition ${
+        active ? "border-brand bg-brand font-bold text-on-brand" : "border-panel-border font-medium text-soft hover:border-brand"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function SummaryPill({ label, value }) {
   return (
-    <span className="rounded-full bg-brand/10 px-3 py-1 text-xs font-medium text-brand">
-      {label}: {value || "—"}
+    <span className="bg-brand-soft px-3 py-1.25 text-[11px] font-bold tracking-widest text-soft uppercase">
+      {label}: <span className="text-foreground">{value || "—"}</span>
     </span>
   );
 }

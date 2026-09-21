@@ -27,7 +27,7 @@ export default function AuthGuard({ children }) {
 
   if (status !== "allowed") {
     return (
-      <div className="flex min-h-screen flex-1 items-center justify-center text-sm text-foreground/40">
+      <div className="flex min-h-screen flex-1 items-center justify-center text-sm text-mute">
         Loading…
       </div>
     );

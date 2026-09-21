@@ -57,14 +57,14 @@ def list_sessions(
     if ids:
         # Only user turns count as "turns" — assistant replies aren't practice.
         turn_counts = dict(
-            db.execute(
+            (cid, n) for cid, n in db.execute(
                 select(Message.conversation_id, func.count(Message.id))
                 .where(Message.conversation_id.in_(ids), Message.role == "user")
                 .group_by(Message.conversation_id)
             ).all()
         )
         correction_counts = dict(
-            db.execute(
+            (cid, n) for cid, n in db.execute(
                 select(Correction.conversation_id, func.count(Correction.id))
                 .where(Correction.conversation_id.in_(ids))
                 .group_by(Correction.conversation_id)

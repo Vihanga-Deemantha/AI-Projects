@@ -1,64 +1,88 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { faceSrc, getCompanion } from "@/lib/characters";
 
-/** Scrolling transcript — user/AURA bubbles, auto-scrolls to the latest turn. */
-export default function ConversationView({ messages }) {
-  const bottomRef = useRef(null);
+/**
+ * Scrolling transcript — the companion's bubbles carry their headshot, yours
+ * are accent-marked on the right. Auto-scrolls its OWN container to the latest
+ * turn (not the page, which scrollIntoView would also yank around).
+ */
+export default function ConversationView({ messages, companionId, thinking, scenarioLabel }) {
+  const scrollRef = useRef(null);
+  const companion = getCompanion(companionId);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages]);
-
-  if (messages.length === 0) {
-    return (
-      <div className="flex h-full flex-1 items-center justify-center rounded-2xl border border-dashed border-panel-border text-sm text-foreground/40">
-        Your conversation will appear here once you start talking.
-      </div>
-    );
-  }
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [messages, thinking]);
 
   return (
-    <div className="flex h-full flex-1 flex-col gap-3 overflow-y-auto rounded-2xl border border-panel-border bg-panel p-4">
-      {messages.map((m) => (
-        <Bubble key={m.id} message={m} />
-      ))}
-      <div ref={bottomRef} />
+    <div className="flex flex-col border border-panel-border bg-panel">
+      <div className="flex items-center justify-between gap-3.5 border-b border-panel-border px-5 py-3.75">
+        <span className="text-[10px] font-bold tracking-[0.2em] text-soft uppercase">Conversation</span>
+        {scenarioLabel && <span className="truncate text-[10px] font-bold tracking-[0.16em] text-mute uppercase">{scenarioLabel}</span>}
+      </div>
+
+      {messages.length === 0 && !thinking ? (
+        <div className="grid min-h-50 place-items-center px-6 py-10 text-center text-sm text-mute">
+          Your conversation with {companion.name} will appear here once you start talking.
+        </div>
+      ) : (
+        <div ref={scrollRef} className="flex max-h-115 min-h-50 flex-col gap-4 overflow-y-auto p-5">
+          {messages.map((m) => (
+            <Bubble key={m.id} message={m} companion={companion} />
+          ))}
+          {thinking && (
+            <div className="flex items-end gap-2.5">
+              <Face id={companion.id} name={companion.name} expr="neutral" />
+              <div className="flex items-center gap-1.25 bg-field px-4.5 py-4" aria-label={`${companion.name} is thinking`}>
+                {[0, 0.15, 0.3].map((delay) => (
+                  <span
+                    key={delay}
+                    className="h-1.5 w-1.5 rounded-full bg-brand"
+                    style={{ animation: `aura-float 1s ease-in-out ${delay}s infinite` }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function Bubble({ message }) {
+function Bubble({ message, companion }) {
   const isUser = message.role === "user";
   return (
-    <div className={`flex items-end gap-2 ${isUser ? "flex-row-reverse self-end" : "self-start"}`}>
-      <Avatar isUser={isUser} />
+    <div className={`flex items-end gap-2.5 ${isUser ? "flex-row-reverse" : ""}`}>
+      {isUser ? (
+        <div className="h-8.5 w-8.5 flex-none rounded-full bg-brand" aria-label="You" />
+      ) : (
+        <Face id={companion.id} name={companion.name} expr={message.pending ? "speaking" : "neutral"} />
+      )}
       <div
-        className={`max-w-sm rounded-2xl border px-4 py-2.5 text-sm shadow-sm ${
-          isUser
-            ? "rounded-br-sm border-brand bg-linear-to-br from-brand to-brand-dark text-white"
-            : "rounded-bl-sm border-brand/20 bg-brand-soft text-foreground"
-        } ${message.pending ? "opacity-60" : ""}`}
+        className={`relative max-w-[76%] px-4.25 pt-3.25 pb-5.5 text-[14.5px] leading-[1.55] ${
+          isUser ? "bg-brand-soft" : "bg-field"
+        } ${message.pending ? "opacity-70" : ""}`}
       >
-        <p>{message.text || (message.pending ? "…" : "")}</p>
+        {message.text || (message.pending ? "…" : "")}
         {message.timestamp && (
-          <p className={`mt-1 text-[10px] ${isUser ? "text-white/70" : "text-foreground/40"}`}>
-            {message.timestamp}
-          </p>
+          <span className="absolute right-3 bottom-1.5 text-[10px] text-soft">{message.timestamp}</span>
         )}
       </div>
     </div>
   );
 }
 
-function Avatar({ isUser }) {
+function Face({ id, name, expr }) {
   return (
     <div
-      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white ${
-        isUser ? "bg-violet-400" : "bg-brand"
-      }`}
-    >
-      {isUser ? "You" : "A"}
-    </div>
+      role="img"
+      aria-label={name}
+      className="h-8.5 w-8.5 flex-none rounded-full bg-brand-soft bg-cover bg-top"
+      style={{ backgroundImage: `url('${faceSrc(id, expr)}')` }}
+    />
   );
 }

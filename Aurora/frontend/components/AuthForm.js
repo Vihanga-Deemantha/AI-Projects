@@ -3,17 +3,26 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getGoogleAuthUrl, login, signup } from "@/lib/auth";
+import { getGoogleAuthUrl, login, signup, startGoogleAuth } from "@/lib/auth";
+import { useAuthShell } from "@/components/AuthShell";
 
 const GOOGLE_ERROR_MESSAGES = {
   google_not_configured: "Google sign-in isn't set up on this server yet.",
   google_failed: "Google sign-in didn't complete. Please try again.",
+  session_expired: "Your session expired. Please sign in again.",
 };
+
+export const authInput =
+  "h-13 w-full border border-transparent bg-field px-4 text-[14.5px] text-foreground outline-none transition focus:border-brand";
+export const authLabel = "mb-1.75 block text-[11px] font-bold tracking-[0.14em] text-soft uppercase";
+export const authPrimary =
+  "h-13 w-full cursor-pointer bg-foreground text-[11px] font-bold tracking-[0.2em] text-background uppercase transition hover:bg-brand hover:text-on-brand disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
  * Shared login/signup form column. `mode` is "login" or "signup". Renders
- * just the form itself — the enclosing split-panel shell (brand/orb panel +
- * this column) lives in app/login/page.js and app/signup/page.js.
+ * just the form itself — the split-card shell (companion panel + this
+ * column) lives in components/AuthShell.js and wraps it from
+ * app/login/page.js and app/signup/page.js.
  *
  * Password minimum is 8 to match the server's validation — checking it here
  * too gives instant feedback instead of a round trip, but the server remains
@@ -23,10 +32,12 @@ export default function AuthForm({ mode }) {
   const isSignup = mode === "signup";
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { setLookAway } = useAuthShell();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -62,118 +73,118 @@ export default function AuthForm({ mode }) {
   }
 
   return (
-    <div className="w-full max-w-sm">
-      <h1 className="font-display text-3xl font-bold">
-        {isSignup ? "Create your account" : "Welcome back"}
+    <div className="w-full">
+      <h1 className="mt-7.5 text-center font-display text-[clamp(30px,3.4vw,42px)] leading-[1.02] font-bold">
+        {isSignup ? "Start speaking" : "Welcome back"}
       </h1>
-      <p className="mt-2 mb-8 text-[14.5px] text-foreground/50">
+      <p className="mt-3 text-center text-sm leading-[1.55] text-soft">
         {isSignup
-          ? "Start practising spoken English with feedback that sticks."
-          : "Log in to continue practising."}
+          ? "Six companions, seven scenarios. Setting up takes about a minute."
+          : "Enter your email and password to pick up where you left off."}
       </p>
 
       {error && (
-        <div
-          role="alert"
-          className="mb-4 rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm text-rose-500"
-        >
+        <div role="alert" className="mt-6 border border-brand bg-brand-soft px-3.5 py-2.5 text-[13px] text-foreground">
           {error}
         </div>
       )}
 
-      <a
-        href={getGoogleAuthUrl()}
-        className="flex items-center justify-center gap-2.5 rounded-full border border-panel-border bg-foreground/5 px-4 py-3.5 text-sm font-semibold transition hover:bg-foreground/10"
-      >
-        <GoogleIcon className="h-4.5 w-4.5" />
-        Continue with Google
-      </a>
-
-      <div className="my-6 flex items-center gap-3 text-xs font-medium text-foreground/35">
-        <span className="h-px flex-1 bg-panel-border" />
-        or
-        <span className="h-px flex-1 bg-panel-border" />
-      </div>
-
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4.5">
-        <Field
-          label="Email" type="email" value={email} onChange={setEmail}
-          autoComplete="email" required placeholder="you@example.com"
-        />
-
+      <form onSubmit={handleSubmit} className="mt-7.5 flex flex-col gap-4">
         {isSignup && (
-          <Field
-            label="Display name (optional)" type="text" value={displayName}
-            onChange={setDisplayName} autoComplete="nickname" placeholder="How should we greet you?"
-          />
+          <label className="block">
+            <span className={authLabel}>Name (optional)</span>
+            <input
+              type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)}
+              autoComplete="nickname" placeholder="What should they call you?" className={authInput}
+            />
+          </label>
         )}
 
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-foreground/40">Password</span>
-            {!isSignup && (
-              <Link href="/forgot-password" className="text-[11.5px] font-semibold text-brand hover:underline">
-                Forgot?
-              </Link>
-            )}
-          </div>
+        <label className="block">
+          <span className={authLabel}>Email</span>
           <input
-            type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-            autoComplete={isSignup ? "new-password" : "current-password"}
-            required minLength={isSignup ? 8 : undefined}
-            placeholder={isSignup ? "At least 8 characters" : "Your password"}
-            className="rounded-[13px] border border-panel-border bg-foreground/5 px-4 py-3.5 text-sm outline-none transition placeholder:text-foreground/30 focus:border-brand focus:ring-4 focus:ring-brand/15"
+            type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email" required placeholder="Enter your email" className={authInput}
           />
-        </div>
+        </label>
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="mt-1 rounded-full bg-linear-to-br from-brand to-brand-dark px-4 py-3.75 font-display text-[15px] font-bold text-white shadow-lg shadow-brand/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        <label className="block">
+          <span className={authLabel}>Password</span>
+          <span className="relative block">
+            <input
+              type={showPw ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)}
+              autoComplete={isSignup ? "new-password" : "current-password"}
+              required minLength={isSignup ? 8 : undefined}
+              placeholder={isSignup ? "At least 8 characters" : "Enter your password"}
+              onFocus={() => setLookAway(!showPw)}
+              onBlur={() => setLookAway(false)}
+              className={`${authInput} pr-19.5`}
+            />
+            <button
+              type="button"
+              onClick={() => { setShowPw((v) => !v); setLookAway(false); }}
+              className="absolute top-0 right-0 h-full cursor-pointer px-4 text-[10px] font-bold tracking-[0.14em] text-soft uppercase transition hover:text-brand"
+            >
+              {showPw ? "Hide" : "Show"}
+            </button>
+          </span>
+        </label>
+
+        {!isSignup && (
+          <div className="-mt-1 text-right">
+            <Link href="/forgot-password" className="text-[12.5px] font-semibold text-soft transition hover:text-brand">
+              Forgot password
+            </Link>
+          </div>
+        )}
+
+        <button type="submit" disabled={submitting} className={`${authPrimary} mt-1.5`}>
           {submitting
-            ? isSignup ? "Creating account…" : "Logging in…"
-            : isSignup ? "Sign Up" : "Log In"}
+            ? isSignup ? "Creating account…" : "Signing in…"
+            : isSignup ? "Create account" : "Sign in"}
         </button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-foreground/50">
-        {isSignup ? "Already have an account? " : "Don't have an account? "}
+      <div className="my-5.5 flex items-center gap-3.5">
+        <span className="h-px flex-1 bg-panel-border" />
+        <span className="text-[10px] font-bold tracking-[0.2em] text-mute uppercase">or</span>
+        <span className="h-px flex-1 bg-panel-border" />
+      </div>
+
+      <a
+        href={getGoogleAuthUrl()}
+        onClick={(e) => startGoogleAuth(e, { onError: setError })}
+        className="flex h-12.5 items-center justify-center gap-2.75 border border-panel-border text-[13px] font-semibold transition hover:border-brand"
+      >
+        <GoogleIcon className="h-4.25 w-4.25" />
+        {isSignup ? "Sign up with Google" : "Sign in with Google"}
+      </a>
+
+      <p className="mt-6.5 text-center">
+        <Link href="/" className="text-[10px] font-semibold tracking-[0.12em] text-mute uppercase transition hover:text-brand">
+          &larr; Back to AURA
+        </Link>
+      </p>
+      <p className="mt-3.5 text-center text-[13px] text-soft">
+        {isSignup ? "Already have an account?" : "Don't have an account?"}
         <Link
           href={isSignup ? "/login" : "/signup"}
-          className="font-medium text-brand hover:underline"
+          className="ml-1.5 font-bold text-foreground underline underline-offset-[3px] transition hover:text-brand"
         >
-          {isSignup ? "Log in" : "Sign up"}
+          {isSignup ? "Sign in" : "Sign up"}
         </Link>
       </p>
     </div>
   );
 }
 
-function Field({ label, type, value, onChange, ...rest }) {
-  return (
-    <label className="flex flex-col gap-2">
-      <span className="text-[11px] font-bold uppercase tracking-wide text-foreground/40">
-        {label}
-      </span>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded-[13px] border border-panel-border bg-foreground/5 px-4 py-3.5 text-sm outline-none transition placeholder:text-foreground/30 focus:border-brand focus:ring-4 focus:ring-brand/15"
-        {...rest}
-      />
-    </label>
-  );
-}
-
 function GoogleIcon(props) {
   return (
-    <svg viewBox="0 0 48 48" {...props}>
-      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z" />
-      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.9 18.9 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6 29.6 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
-      <path fill="#4CAF50" d="M24 44c5.5 0 10.5-2.1 14.3-5.6l-6.6-5.6C29.6 34.6 26.9 35.5 24 35.5c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.6 39.6 16.3 44 24 44z" />
-      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.2 4.3-4.1 5.7l6.6 5.6C41.7 36.1 44 30.5 44 24c0-1.3-.1-2.7-.4-3.5z" />
+    <svg viewBox="0 0 48 48" aria-hidden="true" {...props}>
+      <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.5l6.8-6.8C35.6 2.3 30.2 0 24 0 14.6 0 6.5 5.4 2.5 13.3l7.9 6.1C12.3 13.5 17.7 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-2.8-.4-4.1H24v8.4h12.5c-.3 2.1-1.6 5.2-4.6 7.3l7.7 6c4.6-4.2 6.5-10.3 6.5-17.6z" />
+      <path fill="#FBBC05" d="M10.4 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.9-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.5 10.7l7.9-6.1z" />
+      <path fill="#34A853" d="M24 48c6.2 0 11.5-2 15.3-5.6l-7.7-6c-2.1 1.4-4.8 2.3-7.6 2.3-6.3 0-11.7-4-13.6-9.9l-7.9 6.1C6.5 42.6 14.6 48 24 48z" />
     </svg>
   );
 }

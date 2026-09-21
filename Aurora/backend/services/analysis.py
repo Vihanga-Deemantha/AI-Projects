@@ -5,6 +5,7 @@ from backend.services.llm import chat_json
 from backend.database import SessionLocal
 from backend.models.core import Correction
 from backend.schemas.core import CorrectionItem
+from backend.personalities import DEFAULT_STYLE, STYLES
 
 ANALYSIS_SYSTEM_PROMPT = """
 You are a professional English language analyst. Analyze the user's speech for:
@@ -32,16 +33,38 @@ If there are no errors or suggestions, return {"corrections": []}.
 Output valid JSON and nothing else.
 """
 
-def run_async_analysis(transcript: str, message_id: str, conversation_id: str, user_id: str):
+def _system_prompt_for(style: str) -> str:
+    """Adds the variety-awareness clause for non-standard styles."""
+    if style == DEFAULT_STYLE or style not in STYLES:
+        return ANALYSIS_SYSTEM_PROMPT
+    label = STYLES[style]["label"]
+    return (
+        ANALYSIS_SYSTEM_PROMPT.rstrip()
+        + f"\n\nThe learner is practising {label}. Vocabulary, spelling and phrasing that is "
+        "standard in that variety is CORRECT — never report it as an error. Only report genuine "
+        "errors and natural-sounding improvements. If a different regional form is worth knowing, "
+        'you may mention it as a suggestion with "is_error": false.\n'
+    )
+
+
+def run_async_analysis(
+    transcript: str,
+    message_id: str,
+    conversation_id: str,
+    user_id: str,
+    style: str = DEFAULT_STYLE,
+):
     """
     Background task to analyze a user's transcript and save corrections to the DB.
+    `style` is the English variety the learner chose, so usage that is standard
+    in that variety (e.g. British "queue"/"lift") is not flagged as a mistake.
     """
     if not transcript or len(transcript.strip()) < 5:
         return
 
     try:
         messages = [
-            {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
+            {"role": "system", "content": _system_prompt_for(style)},
             {"role": "user", "content": transcript}
         ]
         json_str = chat_json(messages)

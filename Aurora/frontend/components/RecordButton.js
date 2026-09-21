@@ -25,7 +25,7 @@ function pickMimeType() {
 const MIN_RECORDING_MS = 400;
 
 /**
- * Push-to-talk button. Hold to record (mouse or touch), release to send.
+ * Push-to-talk bar. Hold to record (mouse, touch or pen), release to send.
  * Records via MediaRecorder — produces webm/opus (or ogg/opus on Firefox),
  * not WAV like local_client.py's sounddevice-based recorder. faster-whisper
  * decodes both via its `av` (PyAV/ffmpeg) dependency, but very short holds
@@ -110,6 +110,8 @@ export default function RecordButton({ disabled, onRecordingComplete, onAnalyser
     audioCtxRef.current = null;
   }
 
+  const label = recording ? "Release to send" : requesting ? "Starting mic…" : "Hold to speak";
+
   return (
     <button
       type="button"
@@ -128,27 +130,22 @@ export default function RecordButton({ disabled, onRecordingComplete, onAnalyser
       }}
       onPointerUp={stopRecording}
       onPointerCancel={stopRecording}
-      className={`flex h-20 w-20 touch-none select-none items-center justify-center rounded-full shadow-lg transition-all duration-150 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-40 ${
-        recording
-          ? "scale-110 bg-[radial-gradient(circle_at_36%_30%,#ffd0da_0%,#fb7185_34%,#be123c_70%,#6b0f27_100%)] shadow-[0_0_34px_rgba(251,113,133,0.55)]"
-          : "aura-orb-breathe bg-[radial-gradient(circle_at_36%_30%,#b4a8ff_0%,#8b7cff_34%,#5541c9_70%,#2c1f6b_100%)] shadow-[0_0_34px_rgba(139,124,255,0.55)] hover:brightness-110"
+      className={`flex h-14 w-full touch-none items-center justify-center gap-3 text-[11px] font-bold tracking-[0.2em] uppercase transition select-none focus:outline-none focus-visible:ring-4 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-50 ${
+        recording ? "cursor-pointer bg-brand text-on-brand" : "cursor-pointer bg-foreground text-background hover:bg-brand hover:text-on-brand"
       }`}
       aria-pressed={recording}
       aria-label={recording ? "Recording — release to send" : "Hold to talk"}
     >
-      <MicIcon className="h-8 w-8 text-white" />
+      <MicIcon className="h-4 w-4" />
+      {label}
     </button>
   );
 }
 
 function MicIcon(props) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
-      <path
-        d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" {...props}>
+      <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M19 11a7 7 0 0 1-14 0" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M12 18v3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
