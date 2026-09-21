@@ -4,14 +4,12 @@ import { useEffect, useState } from "react";
 import { getRecentCorrections } from "@/lib/api";
 
 /**
- * Grammar/vocab feedback panel — the "Recent Voice Sessions" slot in the
- * reference design is replaced with this, since it's AURA's actual
- * differentiator rather than a session-history list.
+ * Grammar/vocab feedback panel — AURA's actual differentiator. Each item
+ * shows what you said struck through, the better form, and why.
  *
- * Polls after each turn (Option B — one-turn-delayed feedback, same pattern
- * as local_client.py's fetch_and_print_feedback / seen_correction_ids).
- */
-/**
+ * Polls after each turn (one-turn-delayed feedback, same pattern as
+ * local_client.py's fetch_and_print_feedback / seen_correction_ids).
+ *
  * IMPORTANT: render this with `key={conversationId}` from the parent. That
  * makes React remount a fresh instance (and fresh `items` state) whenever
  * the conversation changes, instead of carrying corrections over from a
@@ -54,19 +52,22 @@ export default function CorrectionsPanel({ conversationId, refreshKey, onCountCh
   }, [items.length]);
 
   return (
-    <div className="flex h-full flex-col gap-3 rounded-2xl border border-panel-border bg-panel p-4">
-      <p className="text-sm font-semibold text-foreground/70">Language Feedback</p>
+    <div className="border border-panel-border bg-panel">
+      <div className="flex items-center justify-between gap-3 border-b border-panel-border px-5 py-3.75">
+        <span className="text-[10px] font-bold tracking-[0.2em] text-brand uppercase">Corrections</span>
+        <span className="text-[10px] font-bold tracking-[0.16em] text-mute uppercase">{items.length} this session</span>
+      </div>
       {items.length === 0 ? (
-        <p className="text-sm text-foreground/40">
+        <p className="px-5 py-6 text-sm leading-normal text-mute">
           Feedback on grammar and vocabulary will show up here after your first turn.
         </p>
       ) : (
-        <div className="flex flex-col gap-3 overflow-y-auto">
+        <div className="max-h-105 overflow-y-auto">
           {items
             .slice()
             .reverse()
             .map((c) => (
-              <CorrectionCard key={c.id} correction={c} />
+              <CorrectionItem key={c.id} correction={c} />
             ))}
         </div>
       )}
@@ -74,23 +75,20 @@ export default function CorrectionsPanel({ conversationId, refreshKey, onCountCh
   );
 }
 
-function CorrectionCard({ correction }) {
+export function CorrectionItem({ correction }) {
   const isError = correction.is_error;
   return (
-    <div
-      className={`rounded-xl border p-3 text-sm ${
-        isError ? "border-rose-500/25 bg-rose-500/10" : "border-sky-500/25 bg-sky-500/10"
-      }`}
-    >
-      <p className={`mb-1 text-xs font-semibold uppercase tracking-wide ${isError ? "text-rose-500" : "text-sky-500"}`}>
+    <div className="border-b border-panel-border px-5 py-4.5 last:border-b-0">
+      <div className="mb-2 text-[9.5px] font-bold tracking-[0.16em] text-mute uppercase">
+        {isError ? "" : "Suggestion · "}
         {correction.category} · {correction.subtype.replaceAll("_", " ")}
-      </p>
-      <p className="text-foreground/70">
-        <span className="line-through decoration-rose-300">{correction.original}</span>
-        {" → "}
-        <span className="font-medium text-foreground">{correction.correction}</span>
-      </p>
-      <p className="mt-1 text-xs text-foreground/50">{correction.explanation}</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2.25 text-[14.5px]">
+        <span className="text-mute line-through">{correction.original}</span>
+        <span className="text-brand">&rarr;</span>
+        <span className="font-bold">{correction.correction}</span>
+      </div>
+      <div className="mt-1.75 text-[12.5px] leading-[1.55] text-soft">{correction.explanation}</div>
     </div>
   );
 }

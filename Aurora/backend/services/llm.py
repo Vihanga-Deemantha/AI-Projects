@@ -2,6 +2,8 @@
 Groq LLM client wrapper.
 All LLM calls go through this module — never instantiate Groq() in a route directly.
 """
+from typing import Any
+
 # pyrefly: ignore [missing-import]
 from groq import Groq
 from backend.config import (
@@ -32,7 +34,7 @@ def _reasoning_kwargs() -> dict:
 
 
 def chat(
-    messages: list[dict],
+    messages: list[Any],
     model: str | None = None,
     temperature: float = 0.8,
     max_tokens: int = 256,
@@ -58,7 +60,7 @@ def chat(
 
 
 def chat_json(
-    messages: list[dict],
+    messages: list[Any],
     model: str | None = None,
     temperature: float = 0.2,
     max_tokens: int = 1024,
@@ -96,7 +98,7 @@ def ping() -> bool:
     return True
 
 
-def build_messages(system_prompt: str, history: list[dict]) -> list[dict]:
+def build_messages(system_prompt: str, history: list[dict]) -> list[Any]:
     """
     Assembles the full messages list for the Groq API.
 
@@ -116,7 +118,7 @@ def build_messages(system_prompt: str, history: list[dict]) -> list[dict]:
 
 
 def chat_stream(
-    messages: list[dict],
+    messages: list[Any],
     model: str | None = None,
     temperature: float = 0.8,
     max_tokens: int = 300,

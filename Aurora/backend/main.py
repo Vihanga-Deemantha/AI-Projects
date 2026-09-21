@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
         doesn't pay the .onnx load cost. Runs in a daemon thread.
         """
         try:
-            for voice_id in ["amy", "ryan", "alan", "lessac"]:
+            for voice_id in _tts.VOICE_FILES:
                 _tts._get_voice(voice_id)
         except Exception as e:
             print(f"[Startup] TTS pre-warm failed (non-fatal): {e}")

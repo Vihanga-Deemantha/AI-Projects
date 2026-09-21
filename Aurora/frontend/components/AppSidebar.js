@@ -4,22 +4,22 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getStoredUser, logout, onUserUpdated } from "@/lib/auth";
+import { faceSrc, getCompanion } from "@/lib/characters";
 import ThemeToggle from "@/components/ThemeToggle";
 
 /**
- * Persistent left navigation for every authenticated screen (Practice /
- * History / Profile).
+ * Persistent left rail for every authenticated screen (Practice / History /
+ * Profile).
  *
  * Renders two things:
- *  - A `lg:hidden` top bar for phone/tablet widths (logo, hamburger, avatar).
- *  - The nav itself: `lg:sticky lg:top-0 lg:h-screen` on large screens, so it
+ *  - A `lg:hidden` top bar for phone/tablet widths (menu, logo, avatar).
+ *  - The rail itself: `lg:sticky lg:top-0 lg:h-screen` on large screens, so it
  *    stays pinned in view (profile/logout never scroll out of reach) instead
  *    of stretching to match a taller main column and scrolling away with it;
  *    below `lg` it becomes a `fixed` off-canvas drawer toggled by the top bar.
  *
  * Self-contained: the parent page just renders <AppSidebar /> followed by
- * its main content inside a `flex flex-col lg:flex-row` wrapper — no other
- * per-page layout changes needed for the responsive behavior here.
+ * its main content inside a `flex flex-col lg:flex-row` wrapper.
  */
 export default function AppSidebar() {
   const router = useRouter();
@@ -29,8 +29,8 @@ export default function AppSidebar() {
 
   // Read after mount: localStorage isn't available during SSR, and reading it
   // during render would mismatch the server-rendered output on hydration.
-  // Also subscribe to in-tab edits (e.g. from /profile) so the avatar/name
-  // here don't go stale without a full navigation remounting this component.
+  // Also subscribe to in-tab edits (e.g. from /profile or the companion
+  // picker) so the avatar/name/companion here don't go stale.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only; reading it during render would mismatch SSR output
     setUser(getStoredUser());
@@ -44,34 +44,26 @@ export default function AppSidebar() {
 
   const label = user?.display_name || user?.email || "Account";
   const initial = (user?.display_name || user?.email || "A").charAt(0).toUpperCase();
+  const companion = getCompanion(user?.preferred_voice);
 
   return (
     <>
       {/* Mobile / tablet top bar */}
-      <header className="flex items-center justify-between border-b border-panel-border bg-surface px-4 py-3 lg:hidden">
+      <header className="flex items-center justify-between border-b border-panel-border bg-panel px-4 py-3 lg:hidden">
         <button
           type="button"
           onClick={() => setOpen(true)}
           aria-label="Open menu"
-          className="flex h-9 w-9 items-center justify-center rounded-xl text-foreground/70 transition hover:bg-foreground/5"
+          className="flex h-9 w-9 cursor-pointer items-center justify-center text-soft transition hover:bg-brand-soft"
         >
           <MenuIcon className="h-5 w-5" />
         </button>
-        <Link href="/" className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-[9px] bg-linear-to-br from-brand to-brand-dark font-display text-xs font-bold text-white">
-            A
-          </span>
-          <span className="font-display text-base font-bold">AURA</span>
+        <Link href="/" className="flex items-center gap-2.5">
+          <span className="grid h-7 w-7 place-items-center bg-brand font-display text-sm font-bold text-on-brand">A</span>
+          <span className="font-display text-base font-bold tracking-[0.16em]">AURA</span>
         </Link>
-        <Link href="/profile" className="shrink-0">
-          {user?.avatar_url ? (
-            // eslint-disable-next-line @next/next/no-img-element -- external Cloudinary/Google CDN URL, not a locally-optimizable asset
-            <img src={user.avatar_url} alt="" className="h-8 w-8 rounded-full object-cover ring-1 ring-panel-border" />
-          ) : (
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-linear-to-br from-sky-300 to-brand text-xs font-bold text-white">
-              {initial}
-            </span>
-          )}
+        <Link href="/profile" className="shrink-0" aria-label="Your profile">
+          <Avatar user={user} initial={initial} className="h-8 w-8 text-[13px]" />
         </Link>
       </header>
 
@@ -85,62 +77,67 @@ export default function AppSidebar() {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 -translate-x-full flex-col gap-1.5 overflow-y-auto border-r border-panel-border bg-surface px-4 py-7 transition-transform duration-200 lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:w-56 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 -translate-x-full flex-col gap-5.5 overflow-y-auto border-r border-panel-border bg-panel px-4.5 py-6 transition-transform duration-200 lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:w-58 lg:shrink-0 lg:translate-x-0 ${
           open ? "translate-x-0" : ""
         }`}
       >
-        <div className="mb-6 flex items-center justify-between px-2">
+        <div className="flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-linear-to-br from-brand to-brand-dark font-display text-sm font-bold text-white shadow-[0_0_16px_rgba(139,124,255,0.5)]">
-              A
-            </span>
-            <span className="font-display text-lg font-bold">AURA</span>
+            <span className="grid h-7 w-7 place-items-center bg-brand font-display text-sm font-bold text-on-brand">A</span>
+            <span className="font-display text-lg font-bold tracking-[0.16em]">AURA</span>
           </Link>
           <button
             type="button"
             onClick={() => setOpen(false)}
             aria-label="Close menu"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-foreground/50 transition hover:bg-foreground/5 lg:hidden"
+            className="flex h-8 w-8 cursor-pointer items-center justify-center text-mute transition hover:bg-brand-soft lg:hidden"
           >
             <XIcon className="h-4.5 w-4.5" />
           </button>
         </div>
 
-        <NavItem href="/practice" active={pathname === "/practice"} icon={<CompassIcon />}>
-          Practice
-        </NavItem>
-        <NavItem href="/history" active={pathname.startsWith("/history")} icon={<HistoryIcon />}>
-          History
-        </NavItem>
-        <NavItem icon={<ChartIcon />} disabled note="Soon">
-          Progress
-        </NavItem>
+        <nav className="flex flex-col gap-0.5">
+          <NavItem href="/practice" active={pathname === "/practice"}>Practice</NavItem>
+          <NavItem href="/history" active={pathname.startsWith("/history")}>History</NavItem>
+          <NavItem href="/profile" active={pathname === "/profile"}>Profile</NavItem>
+          <NavItem disabled note="Soon">Progress</NavItem>
+        </nav>
 
-        <div className="mt-auto flex flex-col gap-3 border-t border-panel-border pt-4">
-          <ThemeToggle />
-          <div className="flex items-center gap-2.5 px-1">
-            <Link href="/profile" className="shrink-0">
-              {user?.avatar_url ? (
-                // eslint-disable-next-line @next/next/no-img-element -- external Cloudinary/Google CDN URL, not a locally-optimizable asset
-                <img
-                  src={user.avatar_url}
-                  alt=""
-                  className="h-8 w-8 rounded-full object-cover ring-1 ring-panel-border"
-                />
-              ) : (
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-linear-to-br from-sky-300 to-brand text-xs font-bold text-white">
-                  {initial}
-                </span>
-              )}
+        <div className="mt-auto flex flex-col gap-3">
+          <div className="bg-brand-soft p-3.5">
+            <div className="text-[9.5px] font-bold tracking-[0.2em] text-soft uppercase">Today&apos;s companion</div>
+            <div className="mt-3 flex items-center gap-3">
+              <div
+                role="img"
+                aria-label={companion.name}
+                className="h-10.5 w-10.5 flex-none rounded-full bg-panel bg-cover bg-top ring-2 ring-brand"
+                style={{ backgroundImage: `url('${faceSrc(companion.id, "smiling")}')` }}
+              />
+              <div className="min-w-0">
+                <div className="font-display text-base leading-none font-bold">{companion.name}</div>
+                <div className="mt-0.75 text-[10px] font-bold tracking-[0.14em] text-soft uppercase">{companion.tag}</div>
+              </div>
+            </div>
+          </div>
+
+          <ThemeToggle className="w-full" />
+
+          <div className="flex items-center gap-2.5 border-t border-panel-border pt-3.5">
+            <Link href="/profile" className="shrink-0" aria-label="Your profile">
+              <Avatar
+                user={user}
+                initial={initial}
+                className={`h-8 w-8 text-[13px] ${pathname === "/profile" ? "ring-2 ring-foreground" : ""}`}
+              />
             </Link>
             <div className="min-w-0 flex-1">
-              <Link href="/profile" className="block truncate text-[13px] font-semibold hover:text-brand">
+              <Link href="/profile" className="block truncate text-[12.5px] font-bold transition hover:text-brand">
                 {label}
               </Link>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="text-[11px] text-foreground/40 transition hover:text-brand"
+                className="cursor-pointer text-[11px] text-mute transition hover:text-brand"
               >
                 Log out
               </button>
@@ -152,20 +149,34 @@ export default function AppSidebar() {
   );
 }
 
-function NavItem({ href, active, disabled, note, icon, children }) {
-  const classes = `flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] font-medium transition ${
+function Avatar({ user, initial, className = "" }) {
+  if (user?.avatar_url) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- external Cloudinary/Google CDN URL, not a locally-optimizable asset
+      <img src={user.avatar_url} alt="" className={`rounded-full object-cover ${className}`} />
+    );
+  }
+  return (
+    <span className={`grid place-items-center rounded-full bg-brand font-display font-bold text-on-brand ${className}`}>
+      {initial}
+    </span>
+  );
+}
+
+function NavItem({ href, active, disabled, note, children }) {
+  const classes = `flex w-full items-center gap-2.5 px-3 py-2.75 text-[13px] transition ${
     active
-      ? "bg-brand-soft text-foreground"
+      ? "bg-brand-soft font-bold"
       : disabled
-        ? "cursor-not-allowed text-foreground/30"
-        : "text-foreground/60 hover:text-foreground"
+        ? "cursor-not-allowed font-medium text-mute"
+        : "font-medium hover:bg-brand-soft/60"
   }`;
 
   const content = (
     <>
-      <span className={`h-4.5 w-4.5 ${active ? "text-brand" : ""}`}>{icon}</span>
-      <span className="flex-1">{children}</span>
-      {note && <span className="text-[10px] uppercase tracking-wide text-foreground/30">{note}</span>}
+      <span className={`h-4 w-0.75 ${active ? "bg-brand" : "bg-transparent"}`} />
+      <span className="flex-1 text-left">{children}</span>
+      {note && <span className="text-[9px] font-bold tracking-[0.14em] text-mute uppercase">{note}</span>}
     </>
   );
 
@@ -179,28 +190,6 @@ function NavItem({ href, active, disabled, note, icon, children }) {
   );
 }
 
-function CompassIcon(props) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
-      <path d="M21 12a8 8 0 1 1-3.2-6.4L21 4l-1 4.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function HistoryIcon(props) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
-      <path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-9 9Z" />
-      <path d="M12 7v5l3 3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function ChartIcon(props) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
-      <path d="M4 20V10M12 20V4M20 20v-7" strokeLinecap="round" />
-    </svg>
-  );
-}
 function MenuIcon(props) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>

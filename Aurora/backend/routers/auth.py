@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.dependencies import get_current_user
 from backend.models.core import User
+from backend.personalities import STYLES, VOICES
 from backend.schemas.core import (
     AuthUser,
     ChangePasswordRequest,
@@ -113,6 +114,14 @@ def update_profile(
         user.display_name = payload.display_name.strip() or None
     if payload.bio is not None:
         user.bio = payload.bio.strip() or None
+    if payload.preferred_voice is not None:
+        if payload.preferred_voice not in VOICES:
+            raise HTTPException(status_code=400, detail="Unknown companion")
+        user.preferred_voice = payload.preferred_voice
+    if payload.preferred_style is not None:
+        if payload.preferred_style not in STYLES:
+            raise HTTPException(status_code=400, detail="Unknown speaking style")
+        user.preferred_style = payload.preferred_style
     db.commit()
     db.refresh(user)
     return user
@@ -148,8 +157,10 @@ def change_password(
     db: Session = Depends(get_db),
 ):
     if user.has_password:
-        if not payload.current_password or not verify_password(payload.current_password, user.password_hash):
-            raise HTTPException(status_code=401, detail="Current password is incorrect")
+        if not payload.current_password or not user.password_hash or not verify_password(payload.current_password, user.password_hash):
+            # 400, not 401: the caller IS authenticated. A 401 makes the frontend treat this
+            # as an expired session and log the user out.
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
     # Google-only accounts (has_password == False) skip the current-password
     # check entirely — there's nothing to verify against yet.
 

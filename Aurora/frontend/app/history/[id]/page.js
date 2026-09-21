@@ -5,7 +5,10 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import AuthGuard from "@/components/AuthGuard";
 import AppSidebar from "@/components/AppSidebar";
+import Sprite from "@/components/Sprite";
+import { CorrectionItem } from "@/components/CorrectionsPanel";
 import { getSession } from "@/lib/api";
+import { faceSrc, getCompanion, sceneLabel, spriteSrc, styleLabel } from "@/lib/characters";
 import { formatDate, formatDuration } from "../page";
 
 export default function SessionDetailPage() {
@@ -43,121 +46,102 @@ function SessionDetail() {
     };
   }, [id]);
 
+  const who = getCompanion(session?.voice);
+
   return (
-    <main className="mx-auto w-full max-w-3xl flex-1 px-5 py-7 sm:px-8 lg:px-10 lg:py-9">
-      <Link href="/history" className="flex items-center gap-2 text-sm font-semibold text-foreground/55 transition hover:text-brand">
-        <BackIcon className="h-3.5 w-3.5" />
-        Back to Speech History
+    <main className="min-w-0 flex-1 px-5 py-7 sm:px-8 lg:px-10 lg:pt-9 lg:pb-14">
+      <Link href="/history" className="text-[10px] font-bold tracking-[0.18em] text-soft uppercase transition hover:text-brand">
+        &larr; Speech history
       </Link>
 
-      {status === "loading" && (
-        <p className="mt-6 text-sm text-foreground/40">Loading session…</p>
-      )}
+      {status === "loading" && <p className="mt-6 text-sm text-mute">Loading session…</p>}
 
       {status === "error" && (
-        <div className="mt-6 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-500">
-          {error}
-        </div>
+        <div role="alert" className="mt-6 border border-brand bg-brand-soft px-4 py-3 text-sm">{error}</div>
       )}
 
       {status === "ready" && (
-        <>
-          <header className="mt-5 mb-7 flex flex-wrap items-center gap-5 rounded-[20px] border border-brand/20 bg-linear-to-br from-brand-soft to-transparent p-5 sm:p-6">
-            <span className="h-14 w-14 shrink-0 rounded-2xl bg-[radial-gradient(circle_at_36%_30%,#b4a8ff,#8b7cff_34%,#5541c9_90%)] shadow-[0_0_22px_rgba(139,124,255,0.4)]" />
-            <div className="min-w-40 flex-1">
-              <h1 className="font-display text-xl font-bold capitalize">
-                {session.scenario} · {session.style}
+        <div className="mt-5 grid gap-5.5 lg:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]">
+          <div className="relative grid min-h-85 place-items-end justify-center overflow-hidden border border-panel-border bg-brand-soft px-6">
+            <div className="absolute top-[10%] left-1/2 aspect-square w-[70%] -translate-x-1/2 rounded-full bg-panel opacity-50" />
+            <div className="absolute inset-x-0 bottom-0 h-[16%] bg-brand opacity-[0.16]" />
+            <div className="relative z-3 -mb-0.5 h-60 max-w-full" style={{ aspectRatio: "700 / 680" }}>
+              <div className="absolute bottom-[-1%] left-[10%] h-3.5 w-[80%] rounded-full bg-foreground opacity-[0.16] blur-sm" />
+              <Sprite src={spriteSrc(who.id, "idle")} alt={who.name} className="absolute inset-0" />
+            </div>
+            <div className="absolute inset-x-5 top-5 z-4">
+              <div className="text-[9.5px] font-bold tracking-[0.2em] text-soft uppercase">
+                {formatDate(session.started_at)} · with {who.name}
+              </div>
+              <h1 className="mt-2 font-display text-[28px] leading-[1.05] font-bold">
+                {sceneLabel(session.scenario)} · {styleLabel(session.style)}
               </h1>
-              <p className="mt-1 text-xs text-foreground/50">
-                {session.style} · voice: {session.voice} · {formatDate(session.started_at)}
-              </p>
             </div>
-            <div className="flex gap-6">
-              <HeaderStat value={session.turn_count} label="Turns" />
-              <HeaderStat value={session.correction_count} label="Corrections" tone="rose" />
-              <HeaderStat value={formatDuration(session.duration_seconds)} label="Duration" />
-            </div>
-          </header>
+          </div>
 
-          {session.messages.length === 0 ? (
-            <p className="rounded-2xl border border-dashed border-panel-border p-8 text-center text-sm text-foreground/40">
-              This session has no turns recorded.
-            </p>
-          ) : (
-            <div className="flex flex-col gap-4">
-              {session.messages.map((m) => (
-                <Turn key={m.id} message={m} />
-              ))}
+          <div className="flex min-w-0 flex-col gap-5.5">
+            <div className="flex flex-wrap">
+              <Figure n={session.turn_count} label="Turns" />
+              <Figure n={session.correction_count} label="Corrections" />
+              <Figure n={formatDuration(session.duration_seconds)} label="Length" />
+              <Figure n={styleLabel(session.style)} label="Style" small />
             </div>
-          )}
-        </>
+
+            <div className="border border-panel-border bg-panel">
+              <div className="border-b border-panel-border px-5 py-3.75 text-[10px] font-bold tracking-[0.2em] text-soft uppercase">Transcript</div>
+              {session.messages.length === 0 ? (
+                <p className="px-5 py-8 text-center text-sm text-mute">This session has no turns recorded.</p>
+              ) : (
+                <div className="flex flex-col gap-4 p-5">
+                  {session.messages.map((m) => (
+                    <Turn key={m.id} message={m} who={who} />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </main>
   );
 }
 
-function HeaderStat({ value, label, tone }) {
+function Figure({ n, label, small }) {
   return (
-    <div className="text-center">
-      <p className={`font-display text-lg font-bold ${tone === "rose" ? "text-rose-500" : ""}`}>{value}</p>
-      <p className="text-[10px] uppercase tracking-wide text-foreground/40">{label}</p>
+    <div className="-mr-px -mb-px flex-[1_1_110px] border border-panel-border bg-panel p-4.5">
+      <div className={`font-display leading-none ${small ? "truncate text-lg" : "text-[26px]"}`}>{n}</div>
+      <div className="mt-1.5 text-[9.5px] font-bold tracking-[0.16em] text-soft uppercase">{label}</div>
     </div>
   );
 }
 
-function Turn({ message }) {
+function Turn({ message, who }) {
   const isUser = message.role === "user";
   return (
-    <div className={isUser ? "self-end text-right" : "self-start"}>
-      <div
-        className={`inline-block max-w-xl rounded-2xl border px-4 py-2.5 text-left text-sm ${
-          isUser
-            ? "rounded-br-sm border-brand bg-linear-to-br from-brand to-brand-dark text-white"
-            : "rounded-bl-sm border-brand/20 bg-brand-soft text-foreground"
-        }`}
-      >
-        <p className={`mb-1 text-[10px] font-semibold uppercase tracking-wide ${isUser ? "text-white/60" : "text-brand"}`}>
-          {isUser ? "You" : "AURA"}
-        </p>
-        <p>{message.content}</p>
+    <div>
+      <div className={`flex items-end gap-2.5 ${isUser ? "flex-row-reverse" : ""}`}>
+        {isUser ? (
+          <div className="h-8.5 w-8.5 flex-none rounded-full bg-brand" aria-label="You" />
+        ) : (
+          <div
+            role="img"
+            aria-label={who.name}
+            className="h-8.5 w-8.5 flex-none rounded-full bg-brand-soft bg-cover bg-top"
+            style={{ backgroundImage: `url('${faceSrc(who.id, "neutral")}')` }}
+          />
+        )}
+        <div className={`max-w-[76%] px-4.25 py-3.25 text-[14.5px] leading-[1.55] ${isUser ? "bg-brand-soft" : "bg-field"}`}>
+          {message.content}
+        </div>
       </div>
 
       {message.corrections.length > 0 && (
-        <div className="mt-2 flex flex-col gap-2 text-left">
+        <div className="mt-2 ml-11.5 border border-panel-border bg-background md:mr-11.5">
           {message.corrections.map((c) => (
-            <CorrectionCard key={c.id} correction={c} />
+            <CorrectionItem key={c.id} correction={c} />
           ))}
         </div>
       )}
     </div>
-  );
-}
-
-function CorrectionCard({ correction }) {
-  const isError = correction.is_error;
-  return (
-    <div
-      className={`max-w-xl rounded-xl border p-3 text-sm ${
-        isError ? "border-rose-500/25 bg-rose-500/10" : "border-sky-500/25 bg-sky-500/10"
-      }`}
-    >
-      <p className={`mb-1 text-xs font-semibold uppercase tracking-wide ${isError ? "text-rose-500" : "text-sky-500"}`}>
-        {correction.category} · {correction.subtype.replaceAll("_", " ")}
-      </p>
-      <p className="text-foreground/70">
-        <span className="line-through decoration-rose-400/60">{correction.original}</span>
-        {" → "}
-        <span className="font-medium text-foreground">{correction.correction}</span>
-      </p>
-      <p className="mt-1 text-xs text-foreground/50">{correction.explanation}</p>
-    </div>
-  );
-}
-
-function BackIcon(props) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" {...props}>
-      <path d="M15 6l-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }

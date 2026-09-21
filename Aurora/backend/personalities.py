@@ -11,6 +11,18 @@ Users pick all three independently. All combinations work without code changes.
 
 # ── Voices (TTS models) ───────────────────────────────────────────────────────
 VOICES = {
+    "eida": {
+        "file": "voices/en_US-kristin-medium.onnx",
+        "label": "Eida",
+        "desc": "Calm, unhurried",
+        "gender": "female",
+    },
+    "maya": {
+        "file": "voices/en_US-hfc_female-medium.onnx",
+        "label": "Maya",
+        "desc": "Upbeat, energetic",
+        "gender": "female",
+    },
     "amy": {
         "file": "voices/en_US-amy-medium.onnx",
         "label": "Amy",
@@ -26,13 +38,13 @@ VOICES = {
     "alan": {
         "file": "voices/en_GB-alan-medium.onnx",
         "label": "Alan",
-        "desc": "Professional, British",
+        "desc": "Measured, British",
         "gender": "male",
     },
     "lessac": {
         "file": "voices/en_US-lessac-medium.onnx",
-        "label": "Olivia",
-        "desc": "Energetic, American",
+        "label": "Lessac",
+        "desc": "Expressive, American",
         "gender": "female",
     },
 }
@@ -40,50 +52,79 @@ VOICES = {
 DEFAULT_VOICE = "amy"
 
 # ── Speaking Styles (LLM prompt modifiers) ────────────────────────────────────
-# These are conversational style presets informed by regional English vocabulary
-# and phrasing — not claims of accent reproduction (Piper voices are US/GB trained).
+# Real English varieties a learner is likely to meet at work, at university and
+# while travelling. A style changes the coach's VOCABULARY, IDIOM and PHRASING
+# only — Piper voices are US/GB trained, so this is not accent reproduction,
+# and the UI says so. Prompts ask for light, natural usage: no caricature, no
+# phonetic dialect spelling, nothing that mocks or stereotypes a community.
 STYLES = {
     "standard": {
         "label": "Standard English",
+        "desc": "Clear and neutral — a safe default",
         "prompt": "Speak in clear, neutral Standard English.",
+    },
+    "american": {
+        "label": "American English",
+        "desc": "apartment, elevator, sidewalk, \"I've gotten\"",
+        "prompt": (
+            "Use natural American English vocabulary and phrasing where it fits, "
+            "for example 'apartment', 'elevator', 'sidewalk', 'I've gotten', 'sounds good'. "
+            "Keep it clear and easy for a learner to follow."
+        ),
+    },
+    "british": {
+        "label": "British English",
+        "desc": "flat, lift, queue, \"not bad\", \"cheers\"",
+        "prompt": (
+            "Use natural British English vocabulary and phrasing where it fits, "
+            "for example 'flat', 'lift', 'queue', 'holiday', 'cheers', 'lovely', "
+            "and the understated 'not bad' or 'quite good'. Keep it clear and easy for a learner to follow."
+        ),
     },
     "australian": {
         "label": "Australian English",
+        "desc": "arvo, reckon, \"no worries\", \"heaps\"",
         "prompt": (
-            "Use Australian English conversational flavour where natural. "
-            "Expressions like 'no worries', 'arvo', 'heaps good', 'reckon', 'mate' are encouraged."
+            "Use light, natural Australian English phrasing where it fits, "
+            "for example 'no worries', 'reckon', 'arvo', 'heaps good', 'good on you'. "
+            "Keep a relaxed, friendly tone and stay easy for a learner to follow."
         ),
     },
     "irish": {
         "label": "Irish English",
+        "desc": "grand, \"sure look\", \"fair play\"",
         "prompt": (
-            "Use Irish English conversational flavour where natural. "
-            "Expressions like 'grand', 'deadly', 'sure look', 'how\\'s the craic', 'gas' are encouraged."
+            "Use light, natural Irish English phrasing where it fits, "
+            "for example 'grand', 'sure look', 'fair play', 'how are you keeping', 'I will, yeah'. "
+            "Keep a warm, conversational tone and stay easy for a learner to follow."
         ),
     },
-    "scouse": {
-        "label": "Scouse (Liverpool)",
+    "scottish": {
+        "label": "Scottish English",
+        "desc": "wee, aye, \"how's it going\"",
         "prompt": (
-            "Use Scouse (Liverpool English) conversational flavour where natural. "
-            "Expressions like 'la', 'boss', 'sound', 'dead good', 'our kid' are encouraged."
+            "Use light, natural Scottish English phrasing where it fits, "
+            "for example 'wee', 'aye', 'braw', 'how's it going'. "
+            "Keep standard grammar and spelling and stay easy for a learner to follow."
         ),
     },
-    "caribbean": {
-        "label": "Caribbean English",
+    "canadian": {
+        "label": "Canadian English",
+        "desc": "washroom, toque, \"eh\", \"double-double\"",
         "prompt": (
-            "Use Caribbean English conversational flavour where natural. "
-            "Expressions like 'liming', 'wicked', 'irie', 'bashment' are encouraged where they fit."
-        ),
-    },
-    "pirate": {
-        "label": "Pirate English",
-        "prompt": (
-            "Speak in exuberant Pirate English as a playful style. "
-            "Use 'Ahoy', 'matey', 'shiver me timbers', nautical vocabulary, "
-            "and dramatic flair. Keep it fun and educational."
+            "Use light, natural Canadian English vocabulary and phrasing where it fits, "
+            "for example 'washroom', 'toque', 'loonie', 'eh' used sparingly, 'give'r'. "
+            "Keep it friendly and easy for a learner to follow."
         ),
     },
 }
+
+# Appended to every non-standard style so the guardrails live in one place.
+STYLE_GUARDRAILS = (
+    "Keep spelling standard and never write phonetic dialect. Never exaggerate, "
+    "mock or stereotype the variety or the people who speak it. Your reply must "
+    "stay clear and easy for an English learner to understand."
+)
 
 DEFAULT_STYLE = "standard"
 
@@ -113,19 +154,36 @@ SCENARIOS = {
         ),
     },
     "debate": {
-        "label": "Debate Mode",
+        "label": "Debate",
         "prompt": (
             "Pick a side on a topic and debate respectfully with the user. "
             "Challenge their arguments, ask for evidence, introduce counter-points. "
             "Topics: technology, environment, education, lifestyle choices."
         ),
     },
-    "university": {
-        "label": "University / Academic",
+    "seminar": {
+        "label": "University Seminar",
         "prompt": (
             "Simulate an academic context: seminar discussion, study group, "
             "office hours with a professor. Use academic vocabulary. "
             "Ask the user to explain concepts, give opinions on readings, present ideas."
+        ),
+    },
+    "cafe": {
+        "label": "Café / Ordering",
+        "prompt": (
+            "You are a friendly barista or waiter at a busy café. Take the user's order, "
+            "suggest options, mention when something is unavailable, and ask clarifying "
+            "questions (size, milk, for here or to go). Keep it fast and natural, the way "
+            "real service conversations go."
+        ),
+    },
+    "phone": {
+        "label": "Phone Call",
+        "prompt": (
+            "Simulate a phone call with no visual cues: a booking line, customer service "
+            "or a colleague. Ask the user to spell names, repeat numbers and confirm details. "
+            "Occasionally ask them to repeat or clarify, as on a slightly bad line."
         ),
     },
 }

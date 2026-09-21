@@ -30,6 +30,9 @@ from backend.personalities import (
     DEFAULT_SCENARIO,
     DEFAULT_STYLE,
     DEFAULT_VOICE,
+    SCENARIOS,
+    STYLES,
+    VOICES,
     build_system_prompt,
 )
 from backend.services import llm, stt, tts
@@ -70,6 +73,16 @@ def start_conversation(
     The owner comes from the verified JWT — never from the request body, which
     previously let any caller claim any user_id (and auto-created that user).
     """
+    # Reject unknown ids up front; otherwise a bad voice only blows up later,
+    # mid-conversation, as a TTS error.
+    for value, allowed, what in (
+        (scenario, SCENARIOS, "scenario"),
+        (style, STYLES, "speaking style"),
+        (voice, VOICES, "voice"),
+    ):
+        if value not in allowed:
+            raise HTTPException(status_code=400, detail=f"Unknown {what}: {value}")
+
     conversation = Conversation(
         user_id=user.id,
         scenario=scenario,
@@ -149,6 +162,8 @@ async def send_message(
         stt_result = await asyncio.to_thread(stt.transcribe, tmp_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"STT error: {e}")
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
     timings["stt_ms"] = stt_result["latency_ms"]
     transcript = stt_result["text"].strip()
@@ -270,6 +285,8 @@ async def send_message_stream(
             yield json.dumps({"type": "error", "message": f"STT error: {e}"}) + "\n"
             yield json.dumps({"type": "done", "full_reply": "", "timings": timings}) + "\n"
             return
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
 
         timings["stt_ms"] = stt_result["latency_ms"]
         transcript = stt_result["text"].strip()
@@ -301,6 +318,7 @@ async def send_message_stream(
             message_id=user_msg.id,
             conversation_id=conversation_id,
             user_id=conversation.user_id,
+            style=conversation.style,
         )
 
         # ── Build LLM context ─────────────────────────────────────────────────

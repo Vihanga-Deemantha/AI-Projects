@@ -1,22 +1,28 @@
 "use client";
 
+import { useEffect } from "react";
+import { getCompanion, preload, spriteSrc } from "@/lib/characters";
+import { useTicker } from "@/hooks/motion";
+import { SpriteCrossfade } from "@/components/Sprite";
 import Waveform from "./Waveform";
 import RecordButton from "./RecordButton";
 
+const MOUTH_MS = 420;
+const POSES = ["idle", "listening", "thinking", "talking_open", "talking_emphatic"];
+
 /**
- * The push-to-talk orb + soundwave. Unlike the earlier version, the orb and
- * the soundwave strip are separate, non-overlapping blocks (stacked
- * vertically) rather than the waveform sitting full-bleed behind the button
- * — so there's no pointer-events trap between them anymore.
- *
- * The same Waveform component reacts to whichever AnalyserNode is live —
- * the mic while recording (rose), or the TTS playback queue while AURA
- * replies (violet/brand).
+ * The practice stage: the selected companion stands in a tinted panel and
+ * changes pose with the conversation — listening while you hold the mic,
+ * thinking while a reply is generated, talking (mouth alternating between
+ * two poses) while the reply plays, idle otherwise. Underneath, the real
+ * analyser-driven Waveform reacts to the live mic or TTS playback, followed
+ * by the hold-to-speak bar.
  *
  * `micAnalyser` is lifted up to the parent (rather than owned locally) so
- * the session status bar can show "Listening…" in sync with this hero.
+ * the session status chip can show "Listening" in sync with this stage.
  */
 export default function WaveformHero({
+  companionId,
   recordDisabled,
   isProcessing,
   isPlaying,
@@ -26,46 +32,59 @@ export default function WaveformHero({
   onAnalyser,
   onRecordingComplete,
 }) {
-  const activeAnalyser = micAnalyser || (isPlaying && !paused ? playbackAnalyser : null);
+  const companion = getCompanion(companionId);
+  const speaking = isPlaying && !paused;
+  const activeAnalyser = micAnalyser || (speaking ? playbackAnalyser : null);
 
-  let statusLabel = "Hold the mic to talk — this starts your session automatically";
-  if (micAnalyser) statusLabel = "Listening…";
-  else if (isProcessing) statusLabel = "AURA is thinking…";
-  else if (paused) statusLabel = "Paused";
-  else if (isPlaying) statusLabel = "AURA is speaking…";
+  // Alternate the two talking poses while the reply plays, so the figure
+  // reads as speaking rather than holding one pose.
+  const [mouth] = useTicker(MOUTH_MS, speaking);
 
-  const colorTop = micAnalyser ? "#ffd0da" : "#c3b8ff";
-  const colorBottom = micAnalyser ? "#fb7185" : "#7a68e8";
+  // Decode this companion's poses ahead of time so a pose change never waits
+  // on the network mid-dissolve.
+  useEffect(() => {
+    preload(POSES.map((p) => spriteSrc(companion.id, p)));
+  }, [companion.id]);
+
+  let pose = "idle";
+  let status = "Hold the mic to begin";
+  if (micAnalyser) { pose = "listening"; status = "Listening…"; }
+  else if (isProcessing) { pose = "thinking"; status = `${companion.name} is thinking…`; }
+  else if (paused) { status = "Paused"; }
+  else if (speaking) { pose = mouth % 2 === 0 ? "talking_open" : "talking_emphatic"; status = `${companion.name} is speaking…`; }
+
+  const live = Boolean(micAnalyser) || isProcessing || speaking;
 
   return (
-    <div className="relative flex flex-col items-center gap-5 overflow-hidden rounded-2xl border border-panel-border bg-panel/60 p-6">
-      <div className="pointer-events-none absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-brand/15 blur-3xl" />
+    <div className="flex flex-col gap-4.5">
+      <div className="relative grid min-h-90 place-items-end justify-center overflow-hidden border border-panel-border bg-brand-soft px-6 sm:min-h-97.5">
+        <div className="absolute top-[8%] left-1/2 aspect-square w-[74%] -translate-x-1/2 rounded-full bg-panel opacity-55" />
+        <div className="absolute inset-x-0 bottom-0 h-[16%] bg-brand opacity-[0.16]" />
 
-      <div className="relative flex items-center gap-2 text-sm font-medium text-foreground/60">
-        <span
-          className={`h-2.5 w-2.5 rounded-full ${
-            micAnalyser
-              ? "animate-pulse bg-rose-500"
-              : activeAnalyser
-                ? "animate-pulse bg-emerald-500"
-                : "bg-foreground/20"
-          }`}
-        />
-        {statusLabel}
+        <div className="absolute top-4 right-4 left-4 z-4 flex items-center gap-2 text-[10px] font-bold tracking-[0.16em] text-soft uppercase">
+          <span className={`h-1.75 w-1.75 flex-none ${live ? "aura-blink bg-brand" : "bg-mute"}`} />
+          <span className="truncate">{status}</span>
+        </div>
+
+        <div className={`relative z-3 -mb-0.5 h-75 max-w-full ${live ? "" : "aura-float"}`} style={{ aspectRatio: "700 / 680" }}>
+          <div className="absolute bottom-[-1%] left-[10%] h-3.75 w-[80%] rounded-full bg-foreground opacity-[0.16] blur-[9px]" />
+          <SpriteCrossfade
+            src={spriteSrc(companion.id, pose)}
+            alt={`${companion.name}, ${pose.replace(/_/g, " ")}`}
+            className="absolute inset-0"
+          />
+        </div>
+
+        <div className="absolute bottom-4.5 left-1/2 z-4 h-9 w-[min(240px,70%)] -translate-x-1/2">
+          <Waveform analyser={activeAnalyser} barCount={24} className={micAnalyser ? "text-brand" : "text-foreground"} />
+        </div>
       </div>
 
-      <div className="relative flex h-33 w-33 items-center justify-center">
-        <div className="aura-ring-spin pointer-events-none absolute -inset-3.5 rounded-full bg-[conic-gradient(from_0deg,transparent,rgba(139,124,255,0.5),transparent_40%)]" />
-        <RecordButton
-          disabled={recordDisabled || isProcessing}
-          onAnalyser={onAnalyser}
-          onRecordingComplete={onRecordingComplete}
-        />
-      </div>
-
-      <div className="relative h-10 w-full max-w-sm">
-        <Waveform analyser={activeAnalyser} colorTop={colorTop} colorBottom={colorBottom} barCount={40} />
-      </div>
+      <RecordButton
+        disabled={recordDisabled || isProcessing}
+        onAnalyser={onAnalyser}
+        onRecordingComplete={onRecordingComplete}
+      />
     </div>
   );
 }

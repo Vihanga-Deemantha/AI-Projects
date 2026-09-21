@@ -69,6 +69,10 @@ class TokenResponse(BaseModel):
 class UpdateProfileRequest(BaseModel):
     display_name: Optional[str] = Field(default=None, max_length=100)
     bio: Optional[str] = Field(default=None, max_length=300)
+    # Validated against personalities.VOICES / STYLES in the router, so this
+    # schema never hand-duplicates the list of valid ids.
+    preferred_voice: Optional[str] = Field(default=None, max_length=50)
+    preferred_style: Optional[str] = Field(default=None, max_length=50)
 
 
 class ChangePasswordRequest(BaseModel):

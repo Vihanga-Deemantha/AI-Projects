@@ -6,12 +6,11 @@ const LENGTH = 6;
 
 /**
  * Six-box OTP entry. Auto-advances on digit entry, backspace navigates back,
- * paste distributes across boxes. Calls onChange(otpString) on every edit,
- * and onComplete(otpString) once all six boxes are filled.
+ * paste distributes across boxes. Calls onComplete(otpString) once all six
+ * boxes are filled.
  *
- * `error` triggers a brief shake + red border on the boxes without owning
- * their value — the parent clears it by changing key/remounting or just
- * lets the next edit implicitly move on.
+ * `error` triggers a brief shake + accent border on the boxes without owning
+ * their value — the parent clears it by remounting (changing `key`).
  */
 export default function OTPInput({ onComplete, error, disabled }) {
   const [digits, setDigits] = useState(Array(LENGTH).fill(""));
@@ -63,7 +62,7 @@ export default function OTPInput({ onComplete, error, disabled }) {
   }
 
   return (
-    <div className={`flex justify-center gap-1 sm:gap-2.5 ${error ? "animate-shake" : ""}`}>
+    <div className={`flex justify-center gap-1 sm:gap-2.25 ${error ? "animate-shake" : ""}`}>
       {digits.map((digit, i) => (
         <input
           key={i}
@@ -75,11 +74,12 @@ export default function OTPInput({ onComplete, error, disabled }) {
           maxLength={1}
           value={digit}
           disabled={disabled}
+          aria-label={`Digit ${i + 1}`}
           onChange={(e) => handleChange(i, e)}
           onKeyDown={(e) => handleKeyDown(i, e)}
           onPaste={handlePaste}
-          className={`h-9 w-9 rounded-[13px] border-2 bg-foreground/5 text-center font-display text-base font-bold outline-none transition focus:ring-4 focus:ring-brand/15 disabled:opacity-50 sm:h-12 sm:w-12 sm:text-xl ${
-            error ? "border-rose-500" : "border-panel-border focus:border-brand"
+          className={`h-11 w-9 border bg-field p-0 text-center font-display text-lg font-bold text-foreground outline-none transition focus:border-brand disabled:opacity-50 sm:h-13.5 sm:w-11.5 sm:text-[21px] ${
+            error || digit ? "border-brand" : "border-transparent"
           }`}
         />
       ))}

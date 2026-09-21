@@ -5,7 +5,7 @@
  * (the Python terminal client) — same endpoints, same NDJSON protocol.
  */
 
-import { getToken, logout } from "@/lib/auth";
+import { expireSession, getToken } from "@/lib/auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
@@ -33,7 +33,7 @@ async function authFetch(path, options = {}) {
     headers: authHeaders(options.headers),
   });
   if (res.status === 401) {
-    logout();
+    expireSession();
     throw new UnauthorizedError();
   }
   return res;

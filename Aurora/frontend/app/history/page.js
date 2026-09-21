@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import AuthGuard from "@/components/AuthGuard";
 import AppSidebar from "@/components/AppSidebar";
 import { getSessions } from "@/lib/api";
+import { faceSrc, getCompanion, sceneLabel, styleLabel } from "@/lib/characters";
 
 const PAGE_SIZE = 20;
 
@@ -45,63 +46,79 @@ function SessionList() {
     };
   }, [offset]);
 
+  const sessions = data?.sessions ?? [];
+  const partial = data && data.total > PAGE_SIZE ? " (this page)" : "";
+  const sum = (key) => sessions.reduce((n, s) => n + (s[key] || 0), 0);
+
   return (
-    <main className="mx-auto w-full max-w-4xl flex-1 px-5 py-7 sm:px-8 lg:px-10 lg:py-9">
-      <header className="mb-7">
-        <h1 className="font-display text-[28px] font-bold">Speech History</h1>
-        <p className="text-sm text-foreground/50">
-          Every past session, with the feedback you received.
+    <main className="min-w-0 flex-1 px-5 py-7 sm:px-8 lg:px-10 lg:pt-9 lg:pb-14">
+      <header>
+        <div className="text-[10px] font-bold tracking-[0.22em] text-soft uppercase">Archive</div>
+        <h1 className="mt-2.5 font-display text-[clamp(30px,3.6vw,46px)] leading-none font-bold">Speech history</h1>
+        <p className="mt-3 max-w-[38em] text-[15px] leading-[1.6] text-soft">
+          Every past session, with the feedback you received. The mistakes you stop making are the measure.
         </p>
       </header>
 
-      {status === "loading" && <p className="text-sm text-foreground/40">Loading sessions…</p>}
+      {status === "loading" && <p className="mt-6.5 text-sm text-mute">Loading sessions…</p>}
 
       {status === "error" && (
-        <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-500">
-          {error}
-        </div>
+        <div role="alert" className="mt-6.5 border border-brand bg-brand-soft px-4 py-3 text-sm">{error}</div>
       )}
 
-      {status === "ready" && data.sessions.length === 0 && (
-        <div className="rounded-2xl border border-dashed border-panel-border p-10 text-center">
-          <p className="text-sm text-foreground/50">You haven&apos;t practised yet.</p>
+      {status === "ready" && sessions.length === 0 && (
+        <div className="mt-6.5 border border-dashed border-panel-border p-10 text-center">
+          <p className="text-sm text-soft">You haven&apos;t practised yet.</p>
           <Link
             href="/practice"
-            className="mt-4 inline-block rounded-full bg-linear-to-br from-brand to-brand-dark px-6 py-3 font-display text-sm font-bold text-white shadow-lg shadow-brand/25 transition hover:brightness-110"
+            className="mt-4 inline-flex h-12 items-center bg-foreground px-6.5 text-[11px] font-bold tracking-[0.18em] text-background uppercase transition hover:bg-brand hover:text-on-brand"
           >
             Start your first session
           </Link>
         </div>
       )}
 
-      {status === "ready" && data.sessions.length > 0 && (
+      {status === "ready" && sessions.length > 0 && (
         <>
-          <ul className="flex flex-col gap-3">
-            {data.sessions.map((s) => (
-              <li key={s.id}>
-                <Link
-                  href={`/history/${s.id}`}
-                  className="flex flex-wrap items-center gap-5 rounded-2xl border border-panel-border bg-panel p-4.5 transition hover:border-brand/35"
-                >
-                  <span className="h-12 w-12 shrink-0 rounded-[14px] bg-[radial-gradient(circle_at_36%_30%,#b4a8ff,#8b7cff_34%,#5541c9_90%)] shadow-[0_0_18px_rgba(139,124,255,0.35)]" />
-                  <div className="min-w-40 flex-1">
-                    <p className="font-semibold capitalize">
-                      {s.scenario} · {s.style}
-                    </p>
-                    <p className="mt-0.5 text-xs text-foreground/45">
-                      {formatDate(s.started_at)} · voice: {s.voice}
-                      {s.is_complete ? "" : " · unfinished"}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-6 text-sm">
-                    <Stat value={s.turn_count} label="turns" />
-                    <Stat value={s.correction_count} label="corrections" tone="rose" />
-                    <Stat value={formatDuration(s.duration_seconds)} label="duration" />
-                  </div>
-                  <ChevronIcon className="ml-1 h-4 w-4 text-foreground/25" />
-                </Link>
-              </li>
-            ))}
+          <div className="mt-6.5 flex flex-wrap">
+            <StatCard value={data.total} label="Sessions" />
+            <StatCard value={sum("turn_count")} label={`Turns${partial}`} />
+            <StatCard value={sum("correction_count")} label={`Corrections${partial}`} />
+            <StatCard value={formatDuration(sum("duration_seconds"))} label={`Time spoken${partial}`} />
+          </div>
+
+          <ul className="mt-5.5 flex flex-col border border-panel-border bg-panel">
+            {sessions.map((s) => {
+              const who = getCompanion(s.voice);
+              return (
+                <li key={s.id} className="border-b border-panel-border last:border-b-0">
+                  <Link
+                    href={`/history/${s.id}`}
+                    className="flex flex-wrap items-center gap-4 px-5 py-4 transition hover:bg-brand-soft/60"
+                  >
+                    <span
+                      role="img"
+                      aria-label={who.name}
+                      className="h-11.5 w-11.5 flex-none rounded-full bg-brand-soft bg-cover bg-top"
+                      style={{ backgroundImage: `url('${faceSrc(who.id, "neutral")}')` }}
+                    />
+                    <div className="min-w-0 flex-[1_1_180px]">
+                      <div className="text-[15px] font-bold">
+                        {sceneLabel(s.scenario)} · {styleLabel(s.style)}
+                      </div>
+                      <div className="mt-1 text-xs text-mute">
+                        {formatDate(s.started_at)} · with {who.name}
+                        {s.is_complete ? "" : " · unfinished"}
+                      </div>
+                    </div>
+                    <Figure value={s.turn_count} label="Turns" className="min-w-15.5" />
+                    <Figure value={s.correction_count} label="Fixes" className="min-w-15.5" accent />
+                    <Figure value={formatDuration(s.duration_seconds)} label="Length" className="min-w-18" />
+                    <span className="text-[15px] text-mute" aria-hidden="true">&rarr;</span>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
 
           {data.total > PAGE_SIZE && (
@@ -110,18 +127,18 @@ function SessionList() {
                 type="button"
                 onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
                 disabled={offset === 0}
-                className="rounded-full border border-panel-border px-5 py-2.5 transition hover:border-brand/40 disabled:cursor-not-allowed disabled:opacity-40"
+                className="h-11 cursor-pointer border border-panel-border px-5 text-[11px] font-bold tracking-[0.16em] uppercase transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Previous
               </button>
-              <span className="text-foreground/45">
+              <span className="text-mute">
                 {offset + 1}–{Math.min(offset + PAGE_SIZE, data.total)} of {data.total}
               </span>
               <button
                 type="button"
                 onClick={() => setOffset(offset + PAGE_SIZE)}
                 disabled={offset + PAGE_SIZE >= data.total}
-                className="rounded-full border border-brand/35 px-5 py-2.5 font-semibold text-brand transition hover:bg-brand-soft disabled:cursor-not-allowed disabled:border-panel-border disabled:font-normal disabled:text-foreground disabled:opacity-40"
+                className="h-11 cursor-pointer border border-brand px-5 text-[11px] font-bold tracking-[0.16em] text-brand uppercase transition hover:bg-brand hover:text-on-brand disabled:cursor-not-allowed disabled:border-panel-border disabled:text-foreground disabled:opacity-40"
               >
                 Next
               </button>
@@ -133,20 +150,21 @@ function SessionList() {
   );
 }
 
-function Stat({ value, label, tone }) {
+function StatCard({ value, label }) {
   return (
-    <div className="text-center">
-      <p className={`font-display font-bold ${tone === "rose" ? "text-rose-500" : ""}`}>{value}</p>
-      <p className="text-[10px] uppercase tracking-wide text-foreground/40">{label}</p>
+    <div className="-mr-px -mb-px flex-[1_1_150px] border border-panel-border bg-panel p-5">
+      <div className="font-display text-[32px] leading-none">{value}</div>
+      <div className="mt-2 text-[9.5px] font-bold tracking-[0.16em] text-soft uppercase">{label}</div>
     </div>
   );
 }
 
-function ChevronIcon(props) {
+function Figure({ value, label, accent, className = "" }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
-      <path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <div className={`text-center ${className}`}>
+      <div className={`font-display text-lg font-bold ${accent ? "text-brand" : ""}`}>{value}</div>
+      <div className="mt-0.75 text-[9px] font-bold tracking-[0.14em] text-mute uppercase">{label}</div>
+    </div>
   );
 }
 

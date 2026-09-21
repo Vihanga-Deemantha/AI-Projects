@@ -4,14 +4,17 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AuthGuard from "@/components/AuthGuard";
 import AppSidebar from "@/components/AppSidebar";
+import { getOptions } from "@/lib/api";
 import {
   changePassword,
   disconnectGoogle,
   getGoogleAuthUrl,
   getMe,
+  startGoogleAuth,
   updateProfile,
   uploadAvatar,
 } from "@/lib/auth";
+import { CAST, faceSrc } from "@/lib/characters";
 
 const GOOGLE_LINK_ERRORS = {
   google_not_configured: "Google sign-in isn't set up on this server yet.",
@@ -19,6 +22,14 @@ const GOOGLE_LINK_ERRORS = {
   google_link_conflict: "That Google account is already linked to a different AURA account.",
   google_failed: "Connecting Google didn't complete. Please try again.",
 };
+
+const input =
+  "h-12 w-full border border-transparent bg-field px-3.75 text-[14.5px] text-foreground outline-none transition focus:border-brand";
+const label = "mb-1.75 block text-[10px] font-bold tracking-[0.16em] text-soft uppercase";
+const primaryBtn =
+  "h-11.5 cursor-pointer bg-foreground px-6 text-[10px] font-bold tracking-[0.18em] whitespace-nowrap text-background uppercase transition hover:bg-brand hover:text-on-brand disabled:cursor-not-allowed disabled:opacity-50";
+const secondaryBtn =
+  "h-10 cursor-pointer border border-panel-border px-4.5 text-[10px] font-bold tracking-[0.16em] whitespace-nowrap text-soft uppercase transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-40";
 
 export default function ProfilePage() {
   return (
@@ -61,41 +72,49 @@ function Profile() {
   }, [searchParams, router]);
 
   return (
-    <main className="mx-auto w-full max-w-2xl flex-1 px-5 py-7 sm:px-8 lg:px-10 lg:py-9">
-      <header className="mb-7">
-        <h1 className="font-display text-[28px] font-bold">Your Profile</h1>
-        <p className="text-sm text-foreground/50">Manage your account details and sign-in options.</p>
-      </header>
+    <main className="min-w-0 flex-1 px-5 py-7 sm:px-8 lg:px-10 lg:pt-9 lg:pb-14">
+      <div className="max-w-190">
+        <header>
+          <div className="text-[10px] font-bold tracking-[0.22em] text-soft uppercase">Account</div>
+          <h1 className="mt-2.5 font-display text-[clamp(30px,3.6vw,46px)] leading-none font-bold">Your profile</h1>
+        </header>
 
-      {status === "loading" && <p className="text-sm text-foreground/40">Loading…</p>}
-      {status === "error" && (
-        <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-500">
-          Couldn&apos;t load your profile. Try refreshing the page.
-        </div>
-      )}
+        {status === "loading" && <p className="mt-6.5 text-sm text-mute">Loading…</p>}
+        {status === "error" && (
+          <div role="alert" className="mt-6.5 border border-brand bg-brand-soft px-4 py-3 text-sm">
+            Couldn&apos;t load your profile. Try refreshing the page.
+          </div>
+        )}
 
-      {status === "ready" && (
-        <div className="flex flex-col gap-6">
-          <AvatarCard user={user} onUpdated={setUser} />
-          <PersonalInfoCard user={user} onUpdated={setUser} />
-          <SecurityCard user={user} onUpdated={setUser} />
-          <ConnectedAccountsCard user={user} onUpdated={setUser} linkError={linkError} />
-        </div>
-      )}
+        {status === "ready" && (
+          <>
+            <IdentityCard user={user} onUpdated={setUser} />
+            <PersonalInfoCard user={user} onUpdated={setUser} />
+            <CompanionsCard user={user} onUpdated={setUser} />
+            <SecurityCard user={user} onUpdated={setUser} />
+            <ConnectedAccountsCard user={user} onUpdated={setUser} linkError={linkError} />
+          </>
+        )}
+      </div>
     </main>
   );
 }
 
-function Card({ title, children }) {
+function Card({ title, subtitle, children }) {
   return (
-    <section className="rounded-2xl border border-panel-border bg-panel p-6">
-      <h2 className="mb-5 font-display text-lg font-bold">{title}</h2>
+    <section className="mt-5.5 border border-panel-border bg-panel p-6.5">
+      <h2 className="font-display text-xl font-bold">{title}</h2>
+      {subtitle && <p className="mt-2 text-[13.5px] text-soft">{subtitle}</p>}
       {children}
     </section>
   );
 }
 
-function AvatarCard({ user, onUpdated }) {
+function Notice({ children }) {
+  return <p className="mt-3 border-l-2 border-brand bg-brand-soft px-3 py-2 text-xs">{children}</p>;
+}
+
+function IdentityCard({ user, onUpdated }) {
   const fileInputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(null);
@@ -118,42 +137,42 @@ function AvatarCard({ user, onUpdated }) {
   }
 
   return (
-    <Card title="Avatar">
-      <div className="flex items-center gap-5">
+    <section className="mt-6.5 border border-panel-border bg-panel p-6.5">
+      <div className="flex flex-wrap items-center gap-5.5">
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
-          className="group relative h-24 w-24 shrink-0 overflow-hidden rounded-full disabled:cursor-wait"
+          aria-label="Change photo"
+          className="group relative h-21 w-21 shrink-0 cursor-pointer overflow-hidden rounded-full disabled:cursor-wait"
         >
           {user.avatar_url ? (
             // eslint-disable-next-line @next/next/no-img-element -- avatar comes from an external Cloudinary/Google CDN, not a locally-optimizable asset
             <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
           ) : (
-            <div className="flex h-full w-full items-center justify-center bg-linear-to-br from-sky-300 to-brand font-display text-3xl font-bold text-white">
+            <span className="grid h-full w-full place-items-center bg-brand font-display text-[32px] font-bold text-on-brand">
               {initial}
-            </div>
+            </span>
           )}
-          <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-[11px] font-semibold text-white opacity-0 transition group-hover:opacity-100">
-            {uploading ? "Uploading…" : "Change Photo"}
-          </div>
-          {uploading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-            </div>
-          )}
+          <span className="absolute inset-0 grid place-items-center bg-black/50 text-[10px] font-bold tracking-widest text-white uppercase opacity-0 transition group-hover:opacity-100">
+            {uploading ? "Uploading…" : "Change"}
+          </span>
         </button>
-        <div>
-          <p className="text-sm font-medium">Click your photo to change it</p>
-          <p className="mt-1 text-xs text-foreground/45">JPEG, PNG, or WebP — up to 5 MB.</p>
-          {error && <p className="mt-1 text-xs text-rose-500">{error}</p>}
+        <div className="min-w-0 flex-[1_1_220px]">
+          <div className="truncate font-display text-2xl font-bold">{user.display_name || "Your name"}</div>
+          <div className="mt-1 truncate text-[13px] text-mute">{user.email}</div>
+          <p className="mt-2 text-xs text-mute">JPEG, PNG or WebP — up to 5 MB.</p>
         </div>
+        <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} className={secondaryBtn}>
+          {uploading ? "Uploading…" : "Change photo"}
+        </button>
         <input
           ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp"
           className="hidden" onChange={handleFileChange}
         />
       </div>
-    </Card>
+      {error && <Notice>{error}</Notice>}
+    </section>
   );
 }
 
@@ -181,39 +200,109 @@ function PersonalInfoCard({ user, onUpdated }) {
   }
 
   return (
-    <Card title="Personal Info">
-      <div className="flex flex-col gap-4">
-        <label className="flex flex-col gap-2">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-foreground/40">Display Name</span>
-          <input
-            value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={100}
-            className="rounded-[13px] border border-panel-border bg-foreground/5 px-4 py-3 text-sm outline-none transition focus:border-brand focus:ring-4 focus:ring-brand/15"
-          />
-        </label>
-        <label className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-foreground/40">Bio</span>
-            <span className="text-[11px] text-foreground/35">{bio.length}/300</span>
-          </div>
-          <textarea
-            value={bio} onChange={(e) => setBio(e.target.value.slice(0, 300))} rows={3}
-            placeholder="Tell us a bit about your English learning goals."
-            className="resize-none rounded-[13px] border border-panel-border bg-foreground/5 px-4 py-3 text-sm outline-none transition placeholder:text-foreground/30 focus:border-brand focus:ring-4 focus:ring-brand/15"
-          />
-        </label>
-
-        {error && <p className="text-xs text-rose-500">{error}</p>}
-
-        <div className="flex items-center gap-3">
-          <button
-            type="button" onClick={handleSave} disabled={saving}
-            className="rounded-full bg-linear-to-br from-brand to-brand-dark px-5 py-2.5 font-display text-sm font-bold text-white shadow-md shadow-brand/20 transition hover:brightness-110 disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Save Changes"}
-          </button>
-          {saved && <span className="text-sm font-medium text-emerald-500">Saved!</span>}
-        </div>
+    <Card title="Personal info">
+      <label className="mt-4.5 block">
+        <span className={label}>Display name</span>
+        <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={100} className={input} />
+      </label>
+      <label className="mt-4 block">
+        <span className="mb-1.75 flex items-center justify-between">
+          <span className="text-[10px] font-bold tracking-[0.16em] text-soft uppercase">Bio</span>
+          <span className="text-[10px] text-mute">{bio.length}/300</span>
+        </span>
+        <textarea
+          value={bio} onChange={(e) => setBio(e.target.value.slice(0, 300))} rows={3}
+          placeholder="Tell us a bit about your English learning goals."
+          className="w-full resize-none border border-transparent bg-field px-3.75 py-3.25 text-[14.5px] leading-[1.55] text-foreground outline-none transition focus:border-brand"
+        />
+      </label>
+      {error && <Notice>{error}</Notice>}
+      <div className="mt-4.5 flex items-center gap-3">
+        <button type="button" onClick={handleSave} disabled={saving} className={primaryBtn}>
+          {saving ? "Saving…" : "Save changes"}
+        </button>
+        {saved && <span className="text-sm font-semibold text-brand">Saved</span>}
       </div>
+    </Card>
+  );
+}
+
+function CompanionsCard({ user, onUpdated }) {
+  const [styles, setStyles] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    getOptions().then((o) => setStyles(o.styles)).catch(() => {});
+  }, []);
+
+  async function save(patch) {
+    setSaving(true);
+    setError(null);
+    try {
+      onUpdated(await updateProfile(patch));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card title="Your companions" subtitle="Pick who greets you when you open a session, and the English you'd like to hear.">
+      <div className="mt-4.5 flex flex-wrap gap-3">
+        {CAST.map((c) => {
+          const active = c.id === user.preferred_voice;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => save({ preferredVoice: c.id })}
+              disabled={saving}
+              aria-pressed={active}
+              className={`flex w-26 cursor-pointer flex-col items-center gap-1.75 border px-2.5 py-4 transition disabled:cursor-wait ${
+                active ? "border-brand bg-brand-soft" : "border-panel-border hover:border-brand"
+              }`}
+            >
+              <span
+                role="img"
+                aria-label={c.name}
+                className="h-13.5 w-13.5 rounded-full bg-brand-soft bg-cover bg-top"
+                style={{ backgroundImage: `url('${faceSrc(c.id, "smiling")}')` }}
+              />
+              <span className="font-display text-[15px] font-bold">{c.name}</span>
+              <span className="text-[9px] font-bold tracking-[0.14em] text-mute uppercase">{c.tag}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {styles.length > 0 && (
+        <div className="mt-5.5">
+          <div className={label}>Speaking style</div>
+          <div className="flex flex-wrap">
+            {styles.map((s) => {
+              const active = s.id === user.preferred_style;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => save({ preferredStyle: s.id })}
+                  disabled={saving}
+                  aria-pressed={active}
+                  className={`-mr-px -mb-px cursor-pointer border px-3.5 py-2.25 text-[12.5px] whitespace-nowrap transition disabled:cursor-wait ${
+                    active ? "border-brand bg-brand font-bold text-on-brand" : "border-panel-border font-medium text-soft hover:border-brand"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2.5 text-[11.5px] text-mute">Styles change vocabulary &amp; phrasing, not the voice&apos;s accent.</p>
+        </div>
+      )}
+      {error && <Notice>{error}</Notice>}
     </Card>
   );
 }
@@ -249,50 +338,44 @@ function SecurityCard({ user, onUpdated }) {
 
   return (
     <Card title="Security">
-      <button
-        type="button" onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between text-left text-sm font-medium text-foreground/70"
-      >
-        {user.has_password ? "Change Password" : "Set a Password"}
-        <ChevronIcon className={`h-4 w-4 text-foreground/40 transition ${expanded ? "rotate-90" : ""}`} />
-      </button>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <div className="text-sm font-semibold">Password</div>
+          <div className="mt-0.75 text-[12.5px] text-mute">
+            {user.has_password ? "Sign in with your email and password." : "Not set — you currently sign in with Google only."}
+          </div>
+        </div>
+        <button type="button" onClick={() => setExpanded((v) => !v)} className={secondaryBtn}>
+          {expanded ? "Cancel" : user.has_password ? "Change password" : "Set a password"}
+        </button>
+      </div>
 
       {expanded && (
-        <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
-          {!user.has_password && (
-            <p className="rounded-lg bg-brand-soft px-3 py-2 text-xs text-brand">
-              Your account currently signs in with Google only. Set a password to also log in with email.
-            </p>
-          )}
+        <form onSubmit={handleSubmit} className="mt-4.5 flex flex-col gap-3">
           {user.has_password && (
             <input
               type="password" required value={current} onChange={(e) => setCurrent(e.target.value)}
-              placeholder="Current password" autoComplete="current-password"
-              className="rounded-[13px] border border-panel-border bg-foreground/5 px-4 py-3 text-sm outline-none transition focus:border-brand focus:ring-4 focus:ring-brand/15"
+              placeholder="Current password" autoComplete="current-password" className={input}
             />
           )}
           <input
             type="password" required minLength={8} value={next} onChange={(e) => setNext(e.target.value)}
-            placeholder="New password" autoComplete="new-password"
-            className="rounded-[13px] border border-panel-border bg-foreground/5 px-4 py-3 text-sm outline-none transition focus:border-brand focus:ring-4 focus:ring-brand/15"
+            placeholder="New password" autoComplete="new-password" className={input}
           />
           <input
             type="password" required value={confirm} onChange={(e) => setConfirm(e.target.value)}
-            placeholder="Confirm new password" autoComplete="new-password"
-            className="rounded-[13px] border border-panel-border bg-foreground/5 px-4 py-3 text-sm outline-none transition focus:border-brand focus:ring-4 focus:ring-brand/15"
+            placeholder="Confirm new password" autoComplete="new-password" className={input}
           />
-          {error && <p className="text-xs text-rose-500">{error}</p>}
+          {error && <Notice>{error}</Notice>}
           <div className="flex items-center gap-3">
-            <button
-              type="submit" disabled={saving}
-              className="rounded-full bg-linear-to-br from-brand to-brand-dark px-5 py-2.5 font-display text-sm font-bold text-white shadow-md shadow-brand/20 transition hover:brightness-110 disabled:opacity-50"
-            >
-              {saving ? "Saving…" : user.has_password ? "Update Password" : "Set Password"}
+            <button type="submit" disabled={saving} className={primaryBtn}>
+              {saving ? "Saving…" : user.has_password ? "Update password" : "Set password"}
             </button>
-            {saved && <span className="text-sm font-medium text-emerald-500">Updated!</span>}
+            {saved && <span className="text-sm font-semibold text-brand">Updated</span>}
           </div>
         </form>
       )}
+      {!expanded && saved && <p className="mt-3 text-sm font-semibold text-brand">Password updated</p>}
     </Card>
   );
 }
@@ -317,15 +400,13 @@ function ConnectedAccountsCard({ user, onUpdated, linkError }) {
   const canDisconnect = user.google_linked && user.has_password;
 
   return (
-    <Card title="Connected Accounts">
-      <div className="flex items-center justify-between">
+    <Card title="Connected accounts">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <GoogleIcon className="h-5 w-5" />
           <div>
-            <p className="text-sm font-medium">Google</p>
-            <p className="text-xs text-foreground/45">
-              {user.google_linked ? "Connected" : "Not connected"}
-            </p>
+            <div className="text-sm font-semibold">Google</div>
+            <div className="mt-0.75 text-[12.5px] text-mute">{user.google_linked ? "Connected" : "Not connected"}</div>
           </div>
         </div>
 
@@ -335,39 +416,32 @@ function ConnectedAccountsCard({ user, onUpdated, linkError }) {
             onClick={handleDisconnect}
             disabled={!canDisconnect || disconnecting}
             title={canDisconnect ? undefined : "Set a password before disconnecting Google"}
-            className="rounded-full border border-panel-border px-4 py-2 text-xs font-semibold transition hover:border-rose-500/40 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className={secondaryBtn}
           >
             {disconnecting ? "Disconnecting…" : "Disconnect"}
           </button>
         ) : (
           <a
             href={getGoogleAuthUrl({ link: true })}
-            className="rounded-full border border-panel-border px-4 py-2 text-xs font-semibold transition hover:border-brand/40 hover:text-brand"
+            onClick={(e) => startGoogleAuth(e, { link: true, onError: setError })}
+            className={`${secondaryBtn} inline-flex items-center`}
           >
             Connect
           </a>
         )}
       </div>
-      {(error || linkError) && <p className="mt-2 text-xs text-rose-500">{error || linkError}</p>}
+      {(error || linkError) && <Notice>{error || linkError}</Notice>}
     </Card>
-  );
-}
-
-function ChevronIcon(props) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
-      <path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }
 
 function GoogleIcon(props) {
   return (
-    <svg viewBox="0 0 48 48" {...props}>
-      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z" />
-      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.9 18.9 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6 29.6 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
-      <path fill="#4CAF50" d="M24 44c5.5 0 10.5-2.1 14.3-5.6l-6.6-5.6C29.6 34.6 26.9 35.5 24 35.5c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.6 39.6 16.3 44 24 44z" />
-      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.2 4.3-4.1 5.7l6.6 5.6C41.7 36.1 44 30.5 44 24c0-1.3-.1-2.7-.4-3.5z" />
+    <svg viewBox="0 0 48 48" aria-hidden="true" {...props}>
+      <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.5l6.8-6.8C35.6 2.3 30.2 0 24 0 14.6 0 6.5 5.4 2.5 13.3l7.9 6.1C12.3 13.5 17.7 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-2.8-.4-4.1H24v8.4h12.5c-.3 2.1-1.6 5.2-4.6 7.3l7.7 6c4.6-4.2 6.5-10.3 6.5-17.6z" />
+      <path fill="#FBBC05" d="M10.4 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.9-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.5 10.7l7.9-6.1z" />
+      <path fill="#34A853" d="M24 48c6.2 0 11.5-2 15.3-5.6l-7.7-6c-2.1 1.4-4.8 2.3-7.6 2.3-6.3 0-11.7-4-13.6-9.9l-7.9 6.1C6.5 42.6 14.6 48 24 48z" />
     </svg>
   );
 }

@@ -48,6 +48,24 @@ export function logout() {
   }
 }
 
+/** Pages that work without a session; an expired token must not bounce these. */
+const PUBLIC_PATHS = ["/", "/login", "/signup", "/forgot-password"];
+
+/**
+ * Called when the server rejects our token (expired, tampered, or the account
+ * is gone). Clears the session and, if the user is on a protected page, sends
+ * them to /login with an explanation — otherwise they would sit on a page
+ * whose every request fails.
+ */
+export function expireSession() {
+  logout();
+  if (typeof window === "undefined") return;
+  const { pathname } = window.location;
+  if (PUBLIC_PATHS.includes(pathname) || pathname.startsWith("/auth/")) return;
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- runs outside React (no router available); a full reload also drops any in-memory state tied to the dead session
+  window.location.href = "/login?error=session_expired";
+}
+
 export function isLoggedIn() {
   return Boolean(getToken());
 }
@@ -104,7 +122,7 @@ async function authFetch(path, options = {}) {
     headers: token ? { ...options.headers, Authorization: `Bearer ${token}` } : options.headers,
   });
   if (res.status === 401) {
-    logout();
+    expireSession();
     throw new Error("Your session has expired. Please log in again.");
   }
   return res;
@@ -150,11 +168,17 @@ export async function getMe() {
   return user;
 }
 
-export async function updateProfile({ displayName, bio }) {
+/** Sends only the fields provided (undefined keys are dropped by JSON.stringify). */
+export async function updateProfile({ displayName, bio, preferredVoice, preferredStyle }) {
   const user = await authFetchJson("/api/auth/profile", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ display_name: displayName, bio }),
+    body: JSON.stringify({
+      display_name: displayName,
+      bio,
+      preferred_voice: preferredVoice,
+      preferred_style: preferredStyle,
+    }),
   });
   syncUser(user);
   return user;
@@ -204,6 +228,24 @@ export function getGoogleAuthUrl({ link = false } = {}) {
   if (!link) return `${API_BASE}/api/auth/google`;
   const token = getToken();
   return `${API_BASE}/api/auth/google?link_token=${encodeURIComponent(token || "")}`;
+}
+
+/**
+ * Click handler for the Google buttons. They're plain links (the whole page
+ * navigates to the backend), so a stopped backend would otherwise strand the
+ * user on the browser's connection-refused page. Probe the server first and
+ * hand a readable message to `onError` instead. `no-cors` keeps the probe
+ * independent of CORS config — only "reachable or not" matters here.
+ */
+export async function startGoogleAuth(event, { link = false, onError } = {}) {
+  event.preventDefault();
+  try {
+    await fetch(`${API_BASE}/health`, { mode: "no-cors", signal: AbortSignal.timeout(4000) });
+  } catch {
+    onError?.("Can't reach the AURA server right now. Please try again in a moment.");
+    return;
+  }
+  window.location.assign(getGoogleAuthUrl({ link }));
 }
 
 export async function disconnectGoogle() {
