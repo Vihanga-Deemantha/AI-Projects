@@ -2,13 +2,15 @@
 
 import { useEffect, useRef } from "react";
 import { faceSrc, getCompanion } from "@/lib/characters";
+import UserAvatar from "@/components/UserAvatar";
 
 /**
- * Scrolling transcript — the companion's bubbles carry their headshot, yours
- * are accent-marked on the right. Auto-scrolls its OWN container to the latest
- * turn (not the page, which scrollIntoView would also yank around).
+ * Scrolling transcript — the companion's bubbles carry their headshot, and
+ * yours carry your own profile photo (or initial), WhatsApp-style. Auto-
+ * scrolls its OWN container to the latest turn (not the page, which
+ * scrollIntoView would also yank around).
  */
-export default function ConversationView({ messages, companionId, thinking, scenarioLabel }) {
+export default function ConversationView({ messages, companionId, thinking, scenarioLabel, user }) {
   const scrollRef = useRef(null);
   const companion = getCompanion(companionId);
 
@@ -31,7 +33,7 @@ export default function ConversationView({ messages, companionId, thinking, scen
       ) : (
         <div ref={scrollRef} className="flex max-h-115 min-h-50 flex-col gap-4 overflow-y-auto p-5">
           {messages.map((m) => (
-            <Bubble key={m.id} message={m} companion={companion} />
+            <Bubble key={m.id} message={m} companion={companion} user={user} />
           ))}
           {thinking && (
             <div className="flex items-end gap-2.5">
@@ -53,12 +55,12 @@ export default function ConversationView({ messages, companionId, thinking, scen
   );
 }
 
-function Bubble({ message, companion }) {
+function Bubble({ message, companion, user }) {
   const isUser = message.role === "user";
   return (
     <div className={`flex items-end gap-2.5 ${isUser ? "flex-row-reverse" : ""}`}>
       {isUser ? (
-        <div className="h-8.5 w-8.5 flex-none rounded-full bg-brand" aria-label="You" />
+        <UserAvatar user={user} className="h-8.5 w-8.5 flex-none text-[13px]" />
       ) : (
         <Face id={companion.id} name={companion.name} expr={message.pending ? "speaking" : "neutral"} />
       )}

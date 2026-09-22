@@ -4,13 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import AppSidebar from "@/components/AppSidebar";
 import SessionSetup from "@/components/SessionSetup";
 import SessionControls from "@/components/SessionControls";
-import StatsRow from "@/components/StatsRow";
+import StatsRow, { formatDuration } from "@/components/StatsRow";
 import WaveformHero from "@/components/WaveformHero";
 import ConversationView from "@/components/ConversationView";
 import CorrectionsPanel from "@/components/CorrectionsPanel";
 import LatencyBadge from "@/components/LatencyBadge";
 import { endSession, getOptions, startSession, streamMessage } from "@/lib/api";
-import { getStoredUser, updateProfile } from "@/lib/auth";
+import { getStoredUser, onUserUpdated, updateProfile } from "@/lib/auth";
 import { getCompanion } from "@/lib/characters";
 import { createAudioQueue } from "@/lib/audioQueue";
 import AuthGuard from "@/components/AuthGuard";
@@ -30,6 +30,10 @@ function Practice() {
   const [setupValue, setSetupValue] = useState({ voice: "amy", style: "standard", scenario: "casual" });
   const [starting, setStarting] = useState(false);
   const [session, setSession] = useState(null); // { conversationId }
+  // True once "End session" is clicked. `session` itself stays set (rather
+  // than being nulled) so the just-finished transcript, stats and
+  // corrections stay on screen as a recap — see handleEndSession.
+  const [sessionEnded, setSessionEnded] = useState(false);
   const [messages, setMessages] = useState([]);
   const [turns, setTurns] = useState(0);
   const [sessionSeconds, setSessionSeconds] = useState(0);
@@ -42,9 +46,23 @@ function Practice() {
   const [correctionsCount, setCorrectionsCount] = useState(0);
   const [error, setError] = useState(null);
   const [playbackAnalyser, setPlaybackAnalyser] = useState(null);
+  const [user, setUser] = useState(null);
 
   const audioQueueRef = useRef(null);
   const currentAuraMessageIdRef = useRef(null);
+  const endCorrectionsTimeoutRef = useRef(null);
+
+  // Cancel any pending catch-up corrections poll (see handleEndSession) on unmount.
+  useEffect(() => () => clearTimeout(endCorrectionsTimeoutRef.current), []);
+
+  // For the user's own chat bubbles (their avatar, WhatsApp-style). Read
+  // after mount (localStorage is client-only) and stay in sync with edits
+  // made elsewhere, e.g. a new photo uploaded on /profile in another tab.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only; reading it during render would mismatch SSR output
+    setUser(getStoredUser());
+    return onUserUpdated(setUser);
+  }, []);
 
   // Load the available voice/style/scenario options on mount. Identity now
   // comes from the auth token, so there's no local user id to read.
@@ -65,13 +83,14 @@ function Practice() {
       .catch(() => setError("Could not reach the AURA backend. Is it running on port 8000?"));
   }, []);
 
-  // Session timer.
+  // Session timer. Stops (without resetting) the moment the session ends, so
+  // the recap shows the elapsed time the conversation actually ran for.
   useEffect(() => {
-    if (!session) return;
+    if (!session || sessionEnded) return;
     const start = Date.now();
     const id = setInterval(() => setSessionSeconds((Date.now() - start) / 1000), 1000);
     return () => clearInterval(id);
-  }, [session]);
+  }, [session, sessionEnded]);
 
   function getAudioQueue() {
     if (!audioQueueRef.current) {
@@ -106,12 +125,27 @@ function Practice() {
    * Returns the active session, creating one on demand if none exists yet.
    * Used both by the explicit "Start Session" button AND by the first
    * recording — holding the mic is enough to begin, no separate gate.
+   *
+   * If the previous session ended, its conversation is already closed
+   * server-side, so this always opens a fresh one. That's also the one
+   * moment the on-screen recap actually clears — not when the old session
+   * ended, but when a new one genuinely begins.
    */
   async function ensureSession() {
-    if (session) return session;
+    if (session && !sessionEnded) return session;
+
+    clearTimeout(endCorrectionsTimeoutRef.current);
     const data = await startSession(setupValue);
     const newSession = { conversationId: data.conversation_id };
     setSession(newSession);
+    setSessionEnded(false);
+    setMessages([]);
+    setTurns(0);
+    setSessionSeconds(0);
+    setTimings(null);
+    setCorrectionsCount(0);
+    setCorrectionsRefreshKey(0);
+    setError(null);
     getAudioQueue(); // created during a user gesture, for browser autoplay policies
     return newSession;
   }
@@ -139,14 +173,23 @@ function Practice() {
     audioQueueRef.current = null;
     setPlaybackAnalyser(null);
     setPaused(false);
-    setSession(null);
-    setMessages([]);
-    setTurns(0);
-    setSessionSeconds(0);
-    setTimings(null);
-    setCorrectionsCount(0);
-    setCorrectionsRefreshKey(0);
-    setError(null);
+    setSessionEnded(true);
+    // The last turn's grammar/vocab analysis runs in the background and can
+    // still be in flight when its one-shot poll fires. Poll again now, and
+    // once more after a few seconds, so a slow analysis still makes it into
+    // the recap instead of the count freezing one short.
+    if (session) {
+      setCorrectionsRefreshKey((k) => k + 1);
+      clearTimeout(endCorrectionsTimeoutRef.current);
+      endCorrectionsTimeoutRef.current = setTimeout(() => {
+        setCorrectionsRefreshKey((k) => k + 1);
+      }, 5000);
+    }
+    // Deliberately NOT clearing messages/turns/sessionSeconds/timings/
+    // correctionsCount here. The finished conversation stays on screen as a
+    // recap — with a "Start new session" action — instead of the dashboard
+    // reverting to looking like nothing happened. ensureSession() clears it
+    // once a new session actually starts.
   }
 
   function handleTogglePause() {
@@ -241,7 +284,7 @@ function Practice() {
     }
   }
 
-  const sessionActive = Boolean(session);
+  const sessionActive = Boolean(session) && !sessionEnded;
 
   // Single source of truth for the session status badge + controls, shared
   // between SessionControls and WaveformHero so they never disagree.
@@ -252,6 +295,8 @@ function Practice() {
     else if (paused) phase = "paused";
     else if (isPlaying) phase = "speaking";
     else phase = "active";
+  } else if (session && sessionEnded) {
+    phase = "ended";
   }
   const canPause = phase === "speaking" || phase === "paused";
 
@@ -282,6 +327,15 @@ function Practice() {
         {error && (
           <div role="alert" className="mt-5 border border-brand bg-brand-soft px-4 py-3 text-sm">
             {error}
+          </div>
+        )}
+
+        {phase === "ended" && (
+          <div className="mt-5 border border-brand bg-brand-soft px-4.5 py-3.5 text-sm">
+            <strong className="font-bold">Session complete.</strong>{" "}
+            {turns} {turns === 1 ? "turn" : "turns"} · {formatDuration(sessionSeconds)} ·{" "}
+            {correctionsCount} {correctionsCount === 1 ? "correction" : "corrections"} — saved to your history.
+            Ready when you are — hold the mic or use &ldquo;Start new session&rdquo; above.
           </div>
         )}
 
@@ -320,6 +374,7 @@ function Practice() {
               companionId={companion.id}
               thinking={awaitingReply}
               scenarioLabel={scenarioLabel}
+              user={user}
             />
             <CorrectionsPanel
               key={session?.conversationId ?? "no-session"}

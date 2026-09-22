@@ -20,7 +20,7 @@ function StatCard({ value, label }) {
   );
 }
 
-function formatDuration(totalSeconds) {
+export function formatDuration(totalSeconds) {
   const s = Math.max(0, Math.floor(totalSeconds || 0));
   const m = Math.floor(s / 60);
   const r = s % 60;

@@ -42,10 +42,10 @@ VOICES = {
         "gender": "male",
     },
     "lessac": {
-        "file": "voices/en_US-lessac-medium.onnx",
+        "file": "voices/en_US-norman-medium.onnx",
         "label": "Lessac",
-        "desc": "Expressive, American",
-        "gender": "female",
+        "desc": "Deep, deliberate",
+        "gender": "male",
     },
 }
 
