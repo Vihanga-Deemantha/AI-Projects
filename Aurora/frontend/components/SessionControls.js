@@ -19,26 +19,26 @@ export default function SessionControls({ phase, starting, canPause, onStart, on
         {badge.label}
       </span>
 
-      {phase === "idle" ? (
+      {phase === "idle" || phase === "ended" ? (
         <button
           type="button"
           onClick={onStart}
           disabled={starting}
           className="h-10 cursor-pointer bg-foreground px-4.5 text-[10px] font-bold tracking-[0.16em] whitespace-nowrap text-background uppercase transition hover:bg-brand hover:text-on-brand disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {starting ? "Starting…" : "Start session"}
+          {starting ? "Starting…" : phase === "ended" ? "Start new session" : "Start session"}
         </button>
       ) : (
         <>
-          <button
-            type="button"
-            onClick={onTogglePause}
-            disabled={!canPause}
-            title={canPause ? undefined : "Nothing to pause right now — your companion isn't speaking"}
-            className="h-10 cursor-pointer border border-panel-border px-4.5 text-[10px] font-bold tracking-[0.16em] whitespace-nowrap text-soft uppercase transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {phase === "paused" ? "Resume" : "Pause"}
-          </button>
+          {canPause && (
+            <button
+              type="button"
+              onClick={onTogglePause}
+              className="h-10 cursor-pointer border border-panel-border px-4.5 text-[10px] font-bold tracking-[0.16em] whitespace-nowrap text-soft uppercase transition hover:border-brand hover:text-brand"
+            >
+              {phase === "paused" ? "Resume" : "Pause"}
+            </button>
+          )}
           <button
             type="button"
             onClick={onEnd}
@@ -59,4 +59,5 @@ const PHASE_BADGE = {
   thinking: { label: "Thinking", live: true },
   speaking: { label: "Speaking", live: true },
   paused: { label: "Paused", live: false },
+  ended: { label: "Session ended", live: false },
 };

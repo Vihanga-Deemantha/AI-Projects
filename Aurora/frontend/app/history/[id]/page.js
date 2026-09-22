@@ -6,8 +6,10 @@ import { useEffect, useState } from "react";
 import AuthGuard from "@/components/AuthGuard";
 import AppSidebar from "@/components/AppSidebar";
 import Sprite from "@/components/Sprite";
+import UserAvatar from "@/components/UserAvatar";
 import { CorrectionItem } from "@/components/CorrectionsPanel";
 import { getSession } from "@/lib/api";
+import { getStoredUser } from "@/lib/auth";
 import { faceSrc, getCompanion, sceneLabel, spriteSrc, styleLabel } from "@/lib/characters";
 import { formatDate, formatDuration } from "../page";
 
@@ -27,6 +29,14 @@ function SessionDetail() {
   const [session, setSession] = useState(null);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState(null);
+  const [user, setUser] = useState(null);
+
+  // Read after mount: localStorage isn't available during SSR, and reading
+  // it during render would mismatch the server-rendered output on hydration.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only; reading it during render would mismatch SSR output
+    setUser(getStoredUser());
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,7 +104,7 @@ function SessionDetail() {
               ) : (
                 <div className="flex flex-col gap-4 p-5">
                   {session.messages.map((m) => (
-                    <Turn key={m.id} message={m} who={who} />
+                    <Turn key={m.id} message={m} who={who} user={user} />
                   ))}
                 </div>
               )}
@@ -115,13 +125,13 @@ function Figure({ n, label, small }) {
   );
 }
 
-function Turn({ message, who }) {
+function Turn({ message, who, user }) {
   const isUser = message.role === "user";
   return (
     <div>
       <div className={`flex items-end gap-2.5 ${isUser ? "flex-row-reverse" : ""}`}>
         {isUser ? (
-          <div className="h-8.5 w-8.5 flex-none rounded-full bg-brand" aria-label="You" />
+          <UserAvatar user={user} className="h-8.5 w-8.5 flex-none text-[13px]" />
         ) : (
           <div
             role="img"

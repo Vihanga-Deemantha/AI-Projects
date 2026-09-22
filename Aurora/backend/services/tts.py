@@ -39,7 +39,7 @@ VOICE_FILES: dict[str, str] = {
     "amy":    "en_US-amy-medium.onnx",   # 60 MB  — female, American (friendly)
     "ryan":   "en_US-ryan-high.onnx",    # 115 MB — male, American (high quality)
     "alan":   "en_GB-alan-medium.onnx",  # 60 MB  — male, British (professional)
-    "lessac": "en_US-lessac-medium.onnx",# 60 MB  — female, American (energetic)
+    "lessac": "en_US-norman-medium.onnx",# 63 MB  — male, American (deep, deliberate)
 }
 
 

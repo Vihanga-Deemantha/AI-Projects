@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { getStoredUser, logout, onUserUpdated } from "@/lib/auth";
 import { faceSrc, getCompanion } from "@/lib/characters";
 import ThemeToggle from "@/components/ThemeToggle";
+import UserAvatar from "@/components/UserAvatar";
 
 /**
  * Persistent left rail for every authenticated screen (Practice / History /
@@ -43,7 +44,6 @@ export default function AppSidebar() {
   }
 
   const label = user?.display_name || user?.email || "Account";
-  const initial = (user?.display_name || user?.email || "A").charAt(0).toUpperCase();
   const companion = getCompanion(user?.preferred_voice);
 
   return (
@@ -63,7 +63,7 @@ export default function AppSidebar() {
           <span className="font-display text-base font-bold tracking-[0.16em]">AURA</span>
         </Link>
         <Link href="/profile" className="shrink-0" aria-label="Your profile">
-          <Avatar user={user} initial={initial} className="h-8 w-8 text-[13px]" />
+          <UserAvatar user={user} className="h-8 w-8 text-[13px]" />
         </Link>
       </header>
 
@@ -124,9 +124,8 @@ export default function AppSidebar() {
 
           <div className="flex items-center gap-2.5 border-t border-panel-border pt-3.5">
             <Link href="/profile" className="shrink-0" aria-label="Your profile">
-              <Avatar
+              <UserAvatar
                 user={user}
-                initial={initial}
                 className={`h-8 w-8 text-[13px] ${pathname === "/profile" ? "ring-2 ring-foreground" : ""}`}
               />
             </Link>
@@ -146,20 +145,6 @@ export default function AppSidebar() {
         </div>
       </aside>
     </>
-  );
-}
-
-function Avatar({ user, initial, className = "" }) {
-  if (user?.avatar_url) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element -- external Cloudinary/Google CDN URL, not a locally-optimizable asset
-      <img src={user.avatar_url} alt="" className={`rounded-full object-cover ${className}`} />
-    );
-  }
-  return (
-    <span className={`grid place-items-center rounded-full bg-brand font-display font-bold text-on-brand ${className}`}>
-      {initial}
-    </span>
   );
 }
 
