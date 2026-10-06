@@ -8,7 +8,10 @@ import AuthShell from "@/components/AuthShell";
 import OTPInput from "@/components/OTPInput";
 import { authInput, authLabel, authPrimary } from "@/components/AuthForm";
 
+// How long a reset code stays valid, and how soon another may be asked for. The second must match the server's own
+// cooldown (OTP_RESEND_COOLDOWN_SECONDS in backend/routers/auth.py), which silently ignores a request that comes sooner.
 const OTP_SECONDS = 15 * 60;
+const RESEND_COOLDOWN_SECONDS = 60;
 
 export default function ForgotPasswordPage() {
   return (
@@ -28,17 +31,25 @@ function ResetFlow() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [otpError, setOtpError] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState(OTP_SECONDS);
+  const [secondsLeft, setSecondsLeft] = useState(OTP_SECONDS); // until the code expires
+  const [cooldown, setCooldown] = useState(0); // until another code may be asked for
   // Bumped to remount OTPInput (clearing its boxes) on resend/error. State,
   // not a ref, because it's read in the render body via `key={otpAttempt}` —
   // a ref read during render doesn't reliably trigger the remount.
   const [otpAttempt, setOtpAttempt] = useState(0);
 
+  // The code's lifetime keeps running while the learner types the new password too, so it counts down in steps 2 and 3.
   useEffect(() => {
-    if (step !== 2) return;
+    if (step === 1) return;
     const id = setInterval(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000);
     return () => clearInterval(id);
   }, [step]);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const id = setInterval(() => setCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(id);
+  }, [cooldown]);
 
   async function handleSendCode(e) {
     e.preventDefault();
@@ -53,8 +64,17 @@ function ResetFlow() {
     } finally {
       setSubmitting(false);
       setSecondsLeft(OTP_SECONDS);
+      setCooldown(RESEND_COOLDOWN_SECONDS);
       setStep(2);
     }
+  }
+
+  /** A mistyped address: back to the first step with it still filled in, so only the typo needs fixing. */
+  function changeEmail() {
+    setError(null);
+    setOtpError(false);
+    setOtp("");
+    setStep(1);
   }
 
   async function handleOtpComplete(code) {
@@ -67,8 +87,10 @@ function ResetFlow() {
   }
 
   async function handleResend() {
+    if (cooldown > 0) return;
     setError(null);
     setOtpAttempt((n) => n + 1);
+    setCooldown(RESEND_COOLDOWN_SECONDS);
     try {
       await forgotPassword(email);
     } catch {
@@ -152,12 +174,19 @@ function ResetFlow() {
       {step === 2 && (
         <div key="step2" className="aura-step-enter mt-6.5 flex flex-col items-center gap-5">
           <CountdownRing secondsLeft={secondsLeft} total={OTP_SECONDS} />
+          {secondsLeft === 0 && <p className="text-[13px] text-soft">That code has expired. Send a new one.</p>}
           <OTPInput key={otpAttempt} onComplete={handleOtpComplete} error={otpError} />
           <button
-            type="button" onClick={handleResend} disabled={secondsLeft > 0}
+            type="button" onClick={handleResend} disabled={cooldown > 0}
             className="cursor-pointer text-[12.5px] font-semibold text-brand transition hover:underline disabled:cursor-not-allowed disabled:text-mute disabled:no-underline"
           >
-            {secondsLeft > 0 ? `Resend code in ${Math.ceil(secondsLeft / 60)} min` : "Resend code"}
+            {cooldown > 0 ? `Send a new code in ${cooldown}s` : "Send a new code"}
+          </button>
+          <button
+            type="button" onClick={changeEmail}
+            className="cursor-pointer text-[12.5px] font-semibold text-soft underline underline-offset-[3px] transition hover:text-brand"
+          >
+            Use a different email
           </button>
         </div>
       )}

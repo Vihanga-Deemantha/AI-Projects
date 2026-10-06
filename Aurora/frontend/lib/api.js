@@ -6,8 +6,17 @@
  */
 
 import { expireSession, getToken } from "@/lib/auth";
+import { readEvents, StreamStalledError } from "@/lib/ndjson";
+import { audioFileName } from "@/lib/recording";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+
+// How long to wait on the server before giving up on a turn. The first sign of life is the transcript, which
+// arrives once speech-to-text has finished; after that a sentence of the reply should turn up every few seconds.
+// The server cuts off a stalled language model itself after 30 s (backend/routers/conversation.py), so both
+// limits are deliberately longer than that: its own explanation should win when it has one.
+const FIRST_BYTE_TIMEOUT_MS = 90_000;
+const IDLE_TIMEOUT_MS = 45_000;
 
 /** Raised on 401 so callers/UI can send the user back to /login. */
 export class UnauthorizedError extends Error {
@@ -87,6 +96,23 @@ export async function endSession(conversationId) {
   return res.json();
 }
 
+/**
+ * A best-effort "End session" for a learner who walks away without pressing the button (a link click, a
+ * closed tab). `keepalive` lets the request outlive the page. It reports nothing and has no 401 handling, on
+ * purpose: if it is lost (offline, a browser that drops requests while a tab closes) the session simply stays
+ * "unfinished", and can be finished from its page in History. The server ends a long-idle session where the
+ * learner stopped talking, so a late call never inflates the session's length.
+ */
+export function endSessionOnLeave(conversationId) {
+  const token = getToken();
+  if (!token) return;
+  fetch(`${API_BASE}/api/conversation/${conversationId}/end`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    keepalive: true,
+  }).catch(() => {});
+}
+
 /** Past sessions for the logged-in user, newest first. */
 export async function getSessions({ limit = 20, offset = 0 } = {}) {
   const res = await authFetch(`/api/history/sessions?limit=${limit}&offset=${offset}`);
@@ -125,55 +151,69 @@ export async function getSession(conversationId) {
  *   onDone?: (payload: {full_reply:string, timings:object}) => void,
  *   onError?: (message: string) => void,
  * }} handlers
+ * @param {{ signal?: AbortSignal, firstByteMs?: number, idleMs?: number }} [options]
+ *   `signal` lets the caller give up (the learner left the page): the request is cancelled, so the server stops
+ *   working on a reply nobody is waiting for, and the returned promise rejects with an AbortError (no handler is
+ *   called). A reply that stalls, or whose connection drops before "done", is reported through `onError` and
+ *   rejects, rather than leaving the learner waiting in silence.
  */
-export async function streamMessage(conversationId, audioBlob, handlers = {}) {
+export async function streamMessage(conversationId, audioBlob, handlers = {}, { signal, firstByteMs = FIRST_BYTE_TIMEOUT_MS, idleMs = IDLE_TIMEOUT_MS } = {}) {
   const form = new FormData();
   form.set("conversation_id", conversationId);
-  form.set("audio_file", audioBlob, "audio.webm");
+  // Named after what the browser really recorded (Safari: MP4, not WebM): the server keeps the ending.
+  form.set("audio_file", audioBlob, audioFileName(audioBlob));
 
-  const res = await authFetch(`/api/conversation/message-stream`, {
-    method: "POST",
-    body: form,
-  });
+  // One controller for everything below. The caller leaving and our own timeouts both abort it, which also
+  // closes the connection.
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(signal.reason);
+  if (signal?.aborted) controller.abort(signal.reason);
+  else signal?.addEventListener("abort", forwardAbort, { once: true });
+  const firstByteTimer = setTimeout(() => controller.abort(new StreamStalledError()), firstByteMs);
 
-  if (!res.ok || !res.body) {
-    const message = await errorMessage(res, "Couldn't send that recording");
-    handlers.onError?.(message);
-    throw new Error(message);
-  }
+  let finished = false; // a "done" or "error" message arrived, so the reply is complete one way or another
+  try {
+    const res = await authFetch(`/api/conversation/message-stream`, {
+      method: "POST",
+      body: form,
+      signal: controller.signal,
+    });
+    clearTimeout(firstByteTimer);
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    // Last element may be a partial line — keep it buffered for the next chunk.
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let msg;
-      try {
-        msg = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      dispatch(msg, handlers);
+    if (!res.ok || !res.body) {
+      const message = await errorMessage(res, "Couldn't send that recording");
+      handlers.onError?.(message);
+      throw new Error(message);
     }
-  }
 
-  // Flush any trailing line without a final newline.
-  if (buffer.trim()) {
-    try {
-      dispatch(JSON.parse(buffer), handlers);
-    } catch {
-      /* ignore trailing garbage */
+    await readEvents(res.body, {
+      signal: controller.signal,
+      idleMs,
+      onMessage: (msg) => {
+        if (msg.type === "done" || msg.type === "error") finished = true;
+        dispatch(msg, handlers);
+      },
+    });
+
+    if (!finished) {
+      // The stream closed without a "done": the connection dropped part-way through the reply.
+      const message = "The connection dropped before the reply finished. Please try again.";
+      handlers.onError?.(message);
+      throw new Error(message);
     }
+  } catch (err) {
+    // Some browsers reject an aborted fetch with a plain AbortError rather than the reason it was aborted with.
+    const stalled = err instanceof StreamStalledError || (!signal?.aborted && controller.signal.reason instanceof StreamStalledError);
+    if (stalled) {
+      const message = new StreamStalledError().message;
+      handlers.onError?.(message);
+      throw new StreamStalledError(message);
+    }
+    throw err;
+  } finally {
+    clearTimeout(firstByteTimer);
+    signal?.removeEventListener("abort", forwardAbort);
+    controller.abort(); // closes the connection if it is somehow still open; harmless once it has finished
   }
 }
 

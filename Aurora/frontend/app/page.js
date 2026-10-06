@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { isLoggedIn } from "@/lib/auth";
 import { CAST, SCENES, faceSrc, preload, sceneSrc, spriteSrc } from "@/lib/characters";
 import { usePointerVars, useParallax, usePrefersReducedMotion, useTicker } from "@/hooks/motion";
+import LineChart from "@/components/LineChart";
 import Sprite, { SpriteCrossfade } from "@/components/Sprite";
 import SoundBars from "@/components/SoundBars";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -27,11 +28,12 @@ function heroPose(turn) {
   return HERO_ROUNDS[(round - 1 + (turn % n)) % HERO_ROUNDS.length];
 }
 
+// The sample session on the page. The real app works the same way: you speak first, then the coach answers.
 const TRANSCRIPT = [
-  { who: "ai", text: "So — how has your week actually been? Give me the honest version." },
   { who: "me", text: "It was busy. I have been work on a presentation since Monday." },
   { who: "ai", text: "That sounds relentless. Is it for your team, or for a client?" },
   { who: "me", text: "For a client. I am little nervous about the questions part." },
+  { who: "ai", text: "That is completely normal. Which of the questions worries you most?" },
 ];
 
 const CORRECTIONS = [
@@ -40,14 +42,18 @@ const CORRECTIONS = [
   { was: "the questions part", now: "the Q&A", why: "More natural in a work context — and shorter to say." },
 ];
 
+// A sample of the real Progress screen (app/(app)/progress/page.js): the same four figures and the same weekly
+// score chart, with made-up numbers. The page says so. Keep it in step with that screen: a sample must not show
+// anything the real thing does not have.
 const STATS = [
-  { value: "12", label: "Day streak", note: "Sample dashboard" },
-  { value: "3h 40m", label: "Spoken this month", note: "Sample dashboard" },
-  { value: "86", label: "Corrections resolved", note: "Of 104 raised" },
-  { value: "7/7", label: "Scenarios tried", note: "All settings visited" },
+  { value: "14", label: "Sessions" },
+  { value: "3h 40m", label: "Practice time" },
+  { value: "86", label: "Best score" },
+  { value: "12 days", label: "Streak" },
 ];
 
-const CHART = [14, 12, 13, 9, 10, 7, 6, 4];
+const SAMPLE_WEEKS = ["Wk 1", "Wk 2", "Wk 3", "Wk 4", "Wk 5", "Wk 6", "Wk 7", "Wk 8"];
+const SAMPLE_SERIES = [{ key: "overall", label: "Overall", color: "var(--brand)", bold: true, values: [58, 61, 60, 66, 70, 72, 75, 79] }];
 
 const eyebrow = "text-[10px] font-bold tracking-[0.24em] text-soft uppercase";
 const chapterTitle = "mt-3 font-display text-[clamp(32px,5.4vw,72px)] leading-none font-semibold";
@@ -84,7 +90,6 @@ export default function HomePage() {
   const activeScene = SCENES[scene];
   const heroChar = CAST[heroTurn % n];
   const heroPoseName = heroPose(heroTurn);
-  const maxFix = Math.max(...CHART);
 
   function pickChar(i) {
     setFocus(i);
@@ -146,7 +151,7 @@ export default function HomePage() {
               <em className="font-normal">Say something.</em>
             </h1>
             <p className="aura-rise mt-6 max-w-[27em] text-[16.5px] leading-[1.62] text-soft">
-              Six speaking companions, each with their own voice and temperament. They hold a real English conversation with you, then tell you exactly what to fix.
+              Six speaking companions, each with their own voice and face. They hold a real English conversation with you, then show you what to fix.
             </p>
             <div className="aura-rise mt-9 flex w-fit flex-wrap border border-foreground">
               <a href="#s2" className="inline-flex h-13.5 items-center bg-foreground px-7.5 text-[11px] font-bold tracking-[0.18em] text-background uppercase transition hover:bg-brand hover:text-on-brand">
@@ -157,7 +162,7 @@ export default function HomePage() {
               </a>
             </div>
             <div className="aura-rise mt-13 flex flex-wrap gap-x-8 gap-y-4 border-t border-panel-border pt-6 sm:gap-x-11">
-              {[["6", "Companions"], ["7", "Scenarios"], ["2s", "To a reply"]].map(([v, l]) => (
+              {[["6", "Companions"], ["7", "Scenarios"], ["~2s", "To first audio"]].map(([v, l]) => (
                 <div key={l}>
                   <div className="font-display text-[30px]">{v}</div>
                   <div className="mt-0.5 text-[10px] font-bold tracking-[0.2em] text-soft uppercase">{l}</div>
@@ -254,6 +259,9 @@ export default function HomePage() {
                   <span key={t} className="-mr-px -mb-px border border-panel-border px-3.75 py-2 text-[11px] font-bold tracking-widest text-soft uppercase">{t}</span>
                 ))}
               </div>
+              <p className="mt-4 max-w-[34em] text-xs leading-normal text-mute">
+                All six companions coach the same way and give the same feedback. They differ in voice, face and name.
+              </p>
               <div className="mt-6 flex flex-wrap gap-5">
                 <Link href={startHref} className="inline-flex h-12 items-center bg-brand px-6.5 text-[11px] font-bold tracking-[0.18em] text-on-brand uppercase transition hover:bg-foreground hover:text-background">
                   Practise with {active.name}
@@ -310,7 +318,10 @@ export default function HomePage() {
 
               <div className="relative grid grid-rows-[auto_minmax(0,1fr)] gap-3.5 overflow-hidden bg-background px-5.5 pt-5.5">
                 <div className="absolute inset-x-0 bottom-0 h-[16%] bg-brand-soft" />
-                <div className="relative z-2 border border-foreground bg-panel px-4.5 py-3.75 text-[14.5px] leading-normal">{activeScene.line}</div>
+                <div className="relative z-2 border border-foreground bg-panel px-4.5 py-3.75 text-[14.5px] leading-normal">
+                  <span className="mb-1 block text-[10px] font-bold tracking-[0.18em] text-mute uppercase">Example coach line</span>
+                  {activeScene.line}
+                </div>
                 <div className="relative flex h-[clamp(235px,34vh,390px)] items-end justify-center pb-1.5">
                   <SpriteCrossfade src={sceneSrc(activeScene.key)} alt={`${activeScene.label} scenario`} className="relative z-1 h-full w-full" />
                 </div>
@@ -326,6 +337,9 @@ export default function HomePage() {
           <div className="aura-slide relative max-w-[34em]">
             <div className={eyebrow}>Chapter four</div>
             <h2 className={chapterTitle}>Practise English</h2>
+            <p className="mt-4 text-base leading-[1.62] text-soft">
+              A sample session. The conversation and the corrections below were written for this page, not recorded.
+            </p>
           </div>
 
           <div className="relative grid lg:grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)]">
@@ -344,17 +358,17 @@ export default function HomePage() {
                 {TRANSCRIPT.map((t, i) => (
                   <div key={i} className={`flex items-end gap-2.25 ${t.who === "me" ? "flex-row-reverse" : ""}`}>
                     {t.who === "me" ? (
-                      <div className="h-7.5 w-7.5 flex-none rounded-full bg-brand opacity-90" aria-label="You" />
+                      <div role="img" className="h-7.5 w-7.5 flex-none rounded-full bg-brand opacity-90" aria-label="You" />
                     ) : (
                       <div
                         role="img"
                         aria-label={active.name}
                         className="h-7.5 w-7.5 flex-none rounded-full bg-brand-soft bg-cover bg-top"
-                        style={{ backgroundImage: `url('${faceSrc(active.id, i === 2 ? "speaking" : "neutral")}')` }}
+                        style={{ backgroundImage: `url('${faceSrc(active.id, i === TRANSCRIPT.length - 1 ? "speaking" : "neutral")}')` }}
                       />
                     )}
                     <div className={`max-w-[74%] px-4.5 py-3.5 text-[15px] leading-[1.55] ${t.who === "me" ? "bg-brand-soft" : "border border-panel-border bg-panel"}`}>
-                      {i === 0 ? activeScene.line : t.text}
+                      {t.text}
                     </div>
                   </div>
                 ))}
@@ -391,7 +405,9 @@ export default function HomePage() {
           <div className="aura-slide relative max-w-[34em]">
             <div className={eyebrow}>Chapter five</div>
             <h2 className={chapterTitle}>Track your improvement</h2>
-            <p className="mt-4 text-base leading-[1.62] text-soft">Every session lands in your speech history. The mistakes you stop making are the measure.</p>
+            <p className="mt-4 text-base leading-[1.62] text-soft">
+              Every finished session gets a score and lands in your speech history. Below is a sample of the Progress screen; the numbers are made up.
+            </p>
           </div>
 
           <div className="aura-rise relative flex flex-wrap">
@@ -399,24 +415,17 @@ export default function HomePage() {
               <div key={s.label} className="-mr-px -mb-px flex-[1_1_190px] border border-panel-border bg-panel p-6.5">
                 <div className="font-display text-[46px] leading-none">{s.value}</div>
                 <div className="mt-3 text-[10px] font-bold tracking-[0.2em] uppercase">{s.label}</div>
-                <div className="mt-1.25 text-xs text-soft">{s.note}</div>
               </div>
             ))}
           </div>
 
           <div className="aura-rise relative border border-panel-border bg-panel p-7.5">
             <div className="flex flex-wrap items-baseline justify-between gap-4">
-              <h4 className="font-display text-[22px] font-semibold">Corrections per session</h4>
-              <span className="text-[10px] font-bold tracking-[0.18em] text-mute uppercase">Sample month · fewer is better</span>
+              <h3 className="font-display text-[22px] font-semibold">Scores by week</h3>
+              <span className="text-[10px] font-bold tracking-[0.18em] text-mute uppercase">Sample data</span>
             </div>
-            <div className="mt-7 flex h-45 items-end gap-3">
-              {CHART.map((v, i) => (
-                <div key={i} className="flex h-full flex-1 flex-col items-center justify-end gap-2.5">
-                  <div className="text-[11px] font-bold text-soft">{v}</div>
-                  <div className="w-full bg-brand" style={{ height: `${Math.round((v / maxFix) * 100)}%` }} />
-                  <div className="text-[10px] tracking-widest text-mute">{String(i + 1).padStart(2, "0")}</div>
-                </div>
-              ))}
+            <div className="mt-5">
+              <LineChart labels={SAMPLE_WEEKS} series={SAMPLE_SERIES} />
             </div>
           </div>
         </section>
@@ -431,7 +440,7 @@ export default function HomePage() {
             <p className="mt-5 text-[16.5px] leading-[1.6] text-soft">One conversation is enough to see where you stand. All six are waiting.</p>
             <div className="mt-7.5 flex flex-wrap items-center gap-6.5">
               <Link href={startHref} className="inline-flex h-14 items-center bg-foreground px-8 text-[11px] font-bold tracking-[0.18em] text-background uppercase transition hover:bg-brand hover:text-on-brand">
-                {loggedIn ? "Go to practice" : "Start speaking free"}
+                {loggedIn ? "Go to practice" : "Start speaking"}
               </Link>
               {!loggedIn && (
                 <Link href="/login" className="border-b border-panel-border pb-0.75 text-[11px] font-bold tracking-[0.18em] text-soft uppercase transition hover:border-brand hover:text-brand">
@@ -464,7 +473,7 @@ export default function HomePage() {
 
             <footer className="relative flex flex-wrap items-center justify-between gap-5 border-t border-panel-border py-5.5">
               <span className="font-display text-lg tracking-[0.16em]">AURA</span>
-              <p className="max-w-[46em] text-[11.5px] leading-[1.55] text-soft">
+              <p className="max-w-[46em] text-xs leading-[1.55] text-soft">
                 A speaking style changes the coach&apos;s vocabulary and phrasing and the accent you hear, which comes from recordings of real regional speakers. Not every companion has a voice for every accent.
               </p>
             </footer>

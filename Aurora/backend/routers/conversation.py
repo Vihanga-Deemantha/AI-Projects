@@ -23,7 +23,7 @@ import logging
 import tempfile
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # pyrefly: ignore [missing-import]
@@ -32,13 +32,15 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 # pyrefly: ignore [missing-import]
+from sqlalchemy import func
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 
 from backend import taxonomy
 from backend.config import MAX_AUDIO_BYTES, MAX_AUDIO_SECONDS
 from backend.database import get_db
 from backend.dependencies import get_current_user
-from backend.models.core import Conversation, User
+from backend.models.core import Conversation, Message, User
 from backend.personalities import (
     DEFAULT_SCENARIO,
     DEFAULT_STYLE,
@@ -59,6 +61,12 @@ router = APIRouter(prefix="/api/conversation", tags=["conversation"])
 # No LLM token for this long means the provider has stalled.
 LLM_TOKEN_TIMEOUT_SECONDS = 30.0
 _ALLOWED_AUDIO_SUFFIXES = {".webm", ".wav", ".ogg", ".mp3", ".m4a", ".mp4", ".flac"}
+
+# A session that has been quiet for longer than this when it is ended (a learner who walked away and came
+# back, or who finishes it later from History) is closed where its last message left off, not at "now".
+# The time in between was not practice, and counting it would stretch the session's length, move it to the
+# wrong day for streaks and inflate the practice time on the progress page.
+IDLE_AFTER_LAST_MESSAGE = timedelta(minutes=30)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -240,11 +248,20 @@ def end_conversation(
     starts building its report in the background (it first waits for the last
     turn's analysis to finish, so the final mistakes are in the score).
     Idempotent — ending an already-ended session returns the existing values.
+
+    A session ended soon after its last message ends now. One that has been quiet for longer than
+    IDLE_AFTER_LAST_MESSAGE (left open, then finished later from History) ends at its last message,
+    so the idle gap is not counted as practice.
     """
     conversation = _owned_conversation(conversation_id, user, db)
 
     if not conversation.is_complete:
-        conversation.ended_at = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        last_activity = (
+            db.query(func.max(Message.created_at)).filter(Message.conversation_id == conversation.id).scalar()
+        )
+        last_activity = max(last_activity or conversation.started_at, conversation.started_at)
+        conversation.ended_at = now if now - last_activity <= IDLE_AFTER_LAST_MESSAGE else last_activity
         conversation.is_complete = True
         db.commit()
         db.refresh(conversation)

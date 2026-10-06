@@ -3,7 +3,7 @@ import AuthForm from "@/components/AuthForm";
 import AuthShell from "@/components/AuthShell";
 import GuestGuard from "@/components/GuestGuard";
 
-export const metadata = { title: "Sign up — AURA" };
+export const metadata = { title: "Sign up" };
 
 export default function SignupPage() {
   return (

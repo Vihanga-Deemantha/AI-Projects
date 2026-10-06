@@ -1,6 +1,6 @@
 /**
  * Builds the web-ready character art in public/characters/ from the raw
- * transparent PNGs in aura-project-assests/. Ported from the design project's
+ * transparent PNGs in aura-project-assets/. Ported from the design project's
  * sprite builders (_alpha.js / _buildchar.js / _face.js) so the output honours
  * the same contract:
  *
@@ -21,7 +21,7 @@ const sharp = require("sharp");
 const fs = require("fs");
 const path = require("path");
 
-const SRC = path.join(__dirname, "..", "aura-project-assests");
+const SRC = path.join(__dirname, "..", "aura-project-assets");
 const OUT = path.join(__dirname, "..", "public", "characters");
 
 const CW = 700, CH = 680, FX = 350, FY = 668, TARGET = 600, REF_W = 1376;

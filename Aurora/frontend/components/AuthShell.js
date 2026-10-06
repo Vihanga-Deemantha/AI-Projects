@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useRef, useState } from "react";
 import { CAST, spriteSrc } from "@/lib/characters";
+import { usePrefersReducedMotion } from "@/hooks/motion";
 import Sprite from "@/components/Sprite";
 import ThemeToggle from "@/components/ThemeToggle";
 
@@ -17,17 +18,19 @@ export function useAuthShell() {
  * panel on the left, the form (children) on the right. Moving the pointer over
  * the card tilts it and shifts each layer by a different amount so it reads as
  * dimensional. The companion's travel is capped to the panel's side padding so
- * they never clip.
+ * they never clip. Someone who has asked their system for reduced motion gets a still card.
  */
 export default function AuthShell({ children }) {
   const [who, setWho] = useState(0);
   const [lookAway, setLookAway] = useState(false);
   const [tilt, setTilt] = useState({ px: 0, py: 0, inside: false });
   const raf = useRef(0);
+  const calm = usePrefersReducedMotion();
 
   const c = CAST[who];
 
   function onMove(e) {
+    if (calm) return;
     const r = e.currentTarget.getBoundingClientRect();
     const x = ((e.clientX - r.left) / r.width) * 2 - 1;
     const y = ((e.clientY - r.top) / r.height) * 2 - 1;
@@ -51,7 +54,7 @@ export default function AuthShell({ children }) {
 
   return (
     <AuthShellContext.Provider value={{ setLookAway }}>
-      <div className="relative grid min-h-screen flex-1 place-items-center overflow-hidden bg-background px-4 py-8 sm:px-6 sm:py-10">
+      <main className="relative grid min-h-screen flex-1 place-items-center overflow-hidden bg-background px-4 py-8 sm:px-6 sm:py-10">
         <div
           className="pointer-events-none absolute top-[-16%] right-[-10%] z-0 aspect-square w-[min(620px,60vw)] rounded-full bg-brand-soft"
           style={{ transform: `translate(${d(-30).toFixed(1)}px,${dy(-18).toFixed(1)}px)`, transition: `transform ${ease(".4s linear", "1s cubic-bezier(.22,1,.36,1)")}` }}
@@ -139,7 +142,7 @@ export default function AuthShell({ children }) {
 
               {/* Form panel */}
               <section className="relative flex flex-col justify-center bg-panel px-6 py-14 sm:px-14 sm:py-13">
-                <ThemeToggle className="absolute top-4.5 right-4.5 !h-7.5 !px-3.25 !text-[9.5px]" />
+                <ThemeToggle className="absolute top-4.5 right-4.5 !h-7.5 !px-3.25 !text-[10px]" />
                 <div className="flex items-center justify-center gap-2.5">
                   <span className="grid h-7.5 w-7.5 place-items-center bg-brand font-display text-[15px] font-bold text-on-brand">A</span>
                   <span className="font-display text-[19px] font-bold tracking-[0.18em]">AURA</span>
@@ -149,7 +152,7 @@ export default function AuthShell({ children }) {
             </div>
           </div>
         </div>
-      </div>
+      </main>
     </AuthShellContext.Provider>
   );
 }

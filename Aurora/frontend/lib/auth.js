@@ -6,6 +6,8 @@
  * from the JWT and ignores any client-supplied id.
  */
 
+import { safeNextPath } from "@/lib/redirects";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 const TOKEN_KEY = "aura_token";
 const USER_KEY = "aura_user";
@@ -321,7 +323,8 @@ export async function disconnectGoogle() {
 export async function completeGoogleSignIn() {
   const params = new URLSearchParams(window.location.search);
   const code = params.get("code");
-  const next = params.get("next") || "/practice";
+  // The address bar can say anything, so only a path on this site is accepted as the destination.
+  const next = safeNextPath(params.get("next"));
   window.history.replaceState({}, "", window.location.pathname);
 
   if (!code) return { user: null, next };

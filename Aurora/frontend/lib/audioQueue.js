@@ -17,6 +17,7 @@ export function createAudioQueue({ onChunkStart, onQueueEmpty } = {}) {
 
   let queue = [];
   let playing = false;
+  let userPaused = false; // the learner pressed Pause; nothing but Resume may restart the voice
 
   function decode(base64Wav) {
     const binary = atob(base64Wav);
@@ -63,11 +64,22 @@ export function createAudioQueue({ onChunkStart, onQueueEmpty } = {}) {
 
   /** Pauses AURA's voice playback in place (Web Audio has no per-source pause, so we suspend the whole context). */
   function pause() {
+    userPaused = true;
     if (ctx.state === "running") ctx.suspend().catch(() => {});
   }
 
   function resume() {
+    userPaused = false;
     if (ctx.state === "suspended") ctx.resume().catch(() => {});
+  }
+
+  /**
+   * Lets the voice play. Call it from inside a press or key event: Safari only starts audio that a user
+   * gesture asked for, and the first reply arrives long after the gesture, so the context has to be woken
+   * by the press that began the turn. It never overrides the learner's own Pause.
+   */
+  function unlock() {
+    if (!userPaused && ctx.state === "suspended") ctx.resume().catch(() => {});
   }
 
   return {
@@ -76,6 +88,7 @@ export function createAudioQueue({ onChunkStart, onQueueEmpty } = {}) {
     close,
     pause,
     resume,
+    unlock,
     analyser,
     get isPlaying() {
       return playing;

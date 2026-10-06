@@ -29,7 +29,7 @@ function joinNames(names) {
 }
 
 /**
- * The hover text of a chip that is switched off because this companion has no voice for this style, e.g.
+ * The explanation of a chip that is switched off because this companion has no voice for this style, e.g.
  * "Amy doesn't have an Australian voice yet. Ryan and Alan do." It says why and who to pick instead.
  */
 export function whyNot(options, voiceId, styleId) {
@@ -37,4 +37,25 @@ export function whyNot(options, voiceId, styleId) {
   const accent = styleAccent(options, styleId) ?? "matching";
   const others = (options?.voices ?? []).filter((v) => v.styles.includes(styleId)).map((v) => v.label);
   return `${name} doesn't have ${withArticle(accent)} voice yet.${others.length ? ` ${joinNames(others)} ${others.length === 1 ? "does" : "do"}.` : ""}`;
+}
+
+/**
+ * The sentence under the speaking-style chips when some of them are switched off for the chosen companion
+ * (null when none are): "Amy doesn't have an Australian voice yet. Ryan and Alan do." Shown on the page itself,
+ * because a hover tooltip never appears on a touch screen and a switched-off button can't be tabbed to.
+ */
+export function styleRowNote(options, voiceId) {
+  const off = (options?.styles ?? []).filter((s) => !speaks(options, voiceId, s.id));
+  return off.length ? off.map((s) => whyNot(options, voiceId, s.id)).join(" ") : null;
+}
+
+/**
+ * The sentence under the companion chips when some of them are switched off for the chosen speaking style
+ * (null when none are): "Only Ryan and Alan have an Australian voice yet."
+ */
+export function voiceRowNote(options, styleId) {
+  const voices = options?.voices ?? [];
+  const can = voices.filter((v) => v.styles.includes(styleId)).map((v) => v.label);
+  if (can.length === 0 || can.length === voices.length) return null;
+  return `Only ${joinNames(can)} ${can.length === 1 ? "has" : "have"} ${withArticle(styleAccent(options, styleId) ?? "matching")} voice yet.`;
 }

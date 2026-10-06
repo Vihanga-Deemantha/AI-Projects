@@ -223,14 +223,40 @@ def test_sessions_that_were_never_analysed_count_as_practice_but_not_as_scores(c
     assert len(scored) == 1 and scored[0] < 100                                         # only the analysed one has a score
 
 
+def _offsets_for_midnight_test(now: datetime) -> tuple[int, int]:
+    """
+    Two UTC offsets (minutes, within the API's ±840) chosen from the clock so the test means the same at any hour:
+    one whose local clock has just passed midnight (reads 00:05), and one half a day away (reads 12:05).
+    """
+    minutes_into_utc_day = now.hour * 60 + now.minute
+    just_after_midnight = (5 - minutes_into_utc_day) % 1440
+    if just_after_midnight > 840:
+        just_after_midnight -= 1440
+    midday = just_after_midnight + 720 if just_after_midnight <= 120 else just_after_midnight - 720
+    return just_after_midnight, midday
+
+
+def test_the_clock_the_offsets_are_chosen_from_stays_within_the_api_range_at_every_minute_of_the_day():
+    for minute in range(1440):
+        now = datetime(2026, 10, 7, minute // 60, minute % 60, tzinfo=timezone.utc)
+        after_midnight, midday = _offsets_for_midnight_test(now)
+        assert -840 <= after_midnight <= 840 and -840 <= midday <= 840
+        for offset, expected_clock in ((after_midnight, 5), (midday, 12 * 60 + 5)):
+            assert (minute + offset) % 1440 == expected_clock
+
+
 def test_the_timezone_parameter_moves_the_day_boundary(client, user, ai):
-    # A session ended ~30 minutes before UTC midnight: today in UTC, but tomorrow for UTC+5:30.
-    now = datetime.now(timezone.utc)
-    seconds_since_midnight = (now - now.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds()
-    finished_session(user["user"]["id"], ended_seconds_ago=int(seconds_since_midnight) + 1800, corrections=[mistake()])   # 23:30 yesterday UTC
-    utc = client.get("/api/progress/summary?tz_offset=0", headers=user["headers"]).json()["streak"]
-    india = client.get("/api/progress/summary?tz_offset=330", headers=user["headers"]).json()["streak"]
-    assert utc["practiced_today"] is False and india["practiced_today"] is True
+    """
+    The same session is "today" in one time zone and "yesterday" in another. It ended 15 minutes ago: where the clock
+    has just passed midnight (00:05) that was before midnight, so a different day; where it reads 12:05 it was the same
+    day. The offsets are worked out from the current time, so the test holds at any hour of the day (an earlier version
+    assumed UTC+5:30 was still on the same date as UTC, which is only so before 18:30 UTC).
+    """
+    after_midnight, midday = _offsets_for_midnight_test(datetime.now(timezone.utc))
+    finished_session(user["user"]["id"], ended_seconds_ago=15 * 60, corrections=[mistake()])
+    across_midnight = client.get(f"/api/progress/summary?tz_offset={after_midnight}", headers=user["headers"]).json()["streak"]
+    same_day = client.get(f"/api/progress/summary?tz_offset={midday}", headers=user["headers"]).json()["streak"]
+    assert across_midnight["practiced_today"] is False and same_day["practiced_today"] is True
 
 
 def test_progress_is_private_to_the_learner(client, user, make_user, ai):

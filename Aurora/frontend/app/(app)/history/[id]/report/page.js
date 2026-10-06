@@ -3,24 +3,11 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import AuthGuard from "@/components/AuthGuard";
-import AppSidebar from "@/components/AppSidebar";
 import SessionReportView from "@/components/SessionReportView";
 import { getSession } from "@/lib/api";
-import { formatDate } from "../../page";
+import { formatDate } from "@/lib/format";
 
-export default function ReportPage() {
-  return (
-    <AuthGuard>
-      <div className="flex min-h-screen flex-1 flex-col lg:flex-row">
-        <AppSidebar />
-        <Report />
-      </div>
-    </AuthGuard>
-  );
-}
-
-function Report() {
+export default function Report() {
   const { id } = useParams();
   const [session, setSession] = useState(null);
 

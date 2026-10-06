@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { usePrefersReducedMotion } from "@/hooks/motion";
 
 /** A single companion sprite, painted as a background so it never reflows or lazy-loads oddly. */
 export default function Sprite({ src, alt, className = "", style }) {
@@ -25,6 +26,7 @@ export default function Sprite({ src, alt, className = "", style }) {
  */
 export function SpriteCrossfade({ src, alt, className = "" }) {
   const [state, setState] = useState({ src, pool: [src, src], idx: 0 });
+  const calm = usePrefersReducedMotion(); // reduced motion: the pose changes at once, with no dissolve or drift
 
   // Derived-from-props update, done during render (React's recommended
   // pattern) rather than in an effect, so there is never a stale frame.
@@ -49,9 +51,9 @@ export function SpriteCrossfade({ src, alt, className = "" }) {
             style={{
               backgroundImage: state.pool[i] ? `url('${state.pool[i]}')` : "none",
               opacity: on ? 1 : 0,
-              transform: on ? "translateY(0) scale(1)" : "translateY(10px) scale(.986)",
-              transition: "opacity .7s cubic-bezier(.4,0,.2,1), transform .85s cubic-bezier(.22,1,.36,1)",
-              willChange: "opacity, transform",
+              transform: calm || on ? "translateY(0) scale(1)" : "translateY(10px) scale(.986)",
+              transition: calm ? "none" : "opacity .7s cubic-bezier(.4,0,.2,1), transform .85s cubic-bezier(.22,1,.36,1)",
+              willChange: calm ? "auto" : "opacity, transform",
             }}
           />
         );

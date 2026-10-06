@@ -4,9 +4,10 @@ name: CI
 #   backend  — the pytest suite on a real Postgres. It needs no secrets, no network and no model
 #              files: the AI and email services are faked and the voices are a stand-in folder
 #              (backend/tests/conftest.py). The few tests of the genuine Piper models skip here.
-#   frontend — lint + a production build
-# The Playwright smoke test (frontend/e2e) is intentionally NOT run here: it needs the
-# whole stack, real model files and a Groq key. Run it locally with `npm run e2e`.
+#   frontend — lint + the unit tests (`npm test`: formatters, accent rules, stream reading, recording
+#              helpers; plain Node, no browser) + a production build
+# The Playwright tests (frontend/e2e) are intentionally NOT run here: they need the whole stack,
+# real model files and a Groq key. Run them locally with `npm run e2e`.
 
 on:
   push:
@@ -66,6 +67,7 @@ jobs:
           cache-dependency-path: Aurora/frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npm test
       - run: npm run build
         env:
           NEXT_PUBLIC_API_BASE: http://localhost:8000

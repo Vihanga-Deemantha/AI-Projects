@@ -1,20 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-
-const CANDIDATE_MIME_TYPES = [
-  "audio/webm;codecs=opus",
-  "audio/webm",
-  "audio/ogg;codecs=opus",
-];
-
-function pickMimeType() {
-  if (typeof MediaRecorder === "undefined") return "";
-  for (const type of CANDIDATE_MIME_TYPES) {
-    if (MediaRecorder.isTypeSupported(type)) return type;
-  }
-  return ""; // let the browser pick its default
-}
+import { formatClock } from "@/lib/format";
+import { pickRecordingMimeType, recordingSupportProblem } from "@/lib/recording";
 
 // Recordings shorter than this are rejected client-side rather than sent to
 // the backend. Very short holds (an accidental tap, or releasing before the
@@ -28,31 +16,50 @@ const MIN_RECORDING_MS = 400;
 // anyway, and a held button that never got its pointer-up must not record forever.
 const MAX_RECORDING_MS = 60_000;
 
+// The learner's choice between holding the button and tapping it, remembered in this browser only.
+const MODE_KEY = "aura_mic_mode";
+
+const isActivationKey = (e) => e.key === " " || e.key === "Enter";
+
 /**
- * Push-to-talk bar. Hold to record (mouse, touch or pen), release to send.
- * Records via MediaRecorder — produces webm/opus (or ogg/opus on Firefox),
- * not WAV like local_client.py's sounddevice-based recorder. faster-whisper
- * decodes both via its `av` (PyAV/ffmpeg) dependency, but very short holds
- * can produce a container PyAV can't demux — see MIN_RECORDING_MS below.
+ * The talk button. Two ways to use it, both reachable without a mouse:
+ *  - "hold" (the default): hold to record, release to send. A mouse, a finger or a pen works, and so does holding
+ *    Space or Enter while the button is focused.
+ *  - "tap": tap to start, tap again to send. For anyone who cannot comfortably hold a button down for a whole
+ *    sentence (a keyboard user, a trackpad, a long answer on a phone).
+ * Records via MediaRecorder: WebM/Opus in Chrome and Edge, Ogg/Opus in Firefox, MP4 in Safari. The server
+ * decodes all of them (faster-whisper through its `av` dependency).
  *
- * Reports the live mic AnalyserNode up to the parent while recording, so the
- * waveform hero can visualize actual mic input instead of a canned animation.
+ * Reports the live mic AnalyserNode up to the parent while recording, so the waveform hero can visualize the
+ * actual mic input instead of a canned animation, and calls `onPress` synchronously at the start of every press
+ * so the parent can unlock audio playback inside the user gesture (Safari refuses to play sound otherwise).
  */
-export default function RecordButton({ disabled, onRecordingComplete, onAnalyser }) {
+export default function RecordButton({ disabled, onRecordingComplete, onAnalyser, onPress }) {
   const [recording, setRecording] = useState(false);
   const [requesting, setRequesting] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [mode, setMode] = useState("hold");
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const streamRef = useRef(null);
   const audioCtxRef = useRef(null);
   const startedAtRef = useRef(0);
   const maxTimerRef = useRef(null);
-  // Whether the pointer is still down. Opening the mic takes a moment (and can
-  // wait on a permission prompt); if the user lets go in the meantime there is
-  // nothing to stop yet, so the release has to be remembered and applied the
-  // instant recording begins.
-  const pointerHeldRef = useRef(false);
+  // Whether the press that began this recording is still down (a pointer, a key, or in tap mode until the second
+  // tap). Opening the mic takes a moment (and can wait on a permission prompt); if the learner lets go in the
+  // meantime there is nothing to stop yet, so the release has to be remembered and applied the instant recording begins.
+  const pressHeldRef = useRef(false);
+  const keyHeldRef = useRef(false);
+
+  // The saved choice of mode, read after mount because localStorage is not available while rendering on the server.
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only; reading it during render would mismatch SSR output
+      if (localStorage.getItem(MODE_KEY) === "tap") setMode("tap");
+    } catch {
+      /* storage unavailable: stay on hold-to-talk */
+    }
+  }, []);
 
   // Live "0:07" readout while recording.
   useEffect(() => {
@@ -78,21 +85,33 @@ export default function RecordButton({ disabled, onRecordingComplete, onAnalyser
 
   async function startRecording() {
     if (disabled || recording || requesting) return;
+
+    const problem = recordingSupportProblem();
+    if (problem) {
+      onRecordingComplete?.(null, { name: problem });
+      return;
+    }
+
     setRequesting(true);
+    // Made now, inside the press, rather than after the permission prompt: Safari only lets an audio context
+    // run if a user gesture created it.
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AudioCtx();
+    audioCtxRef.current = audioCtx;
+    audioCtx.resume?.().catch(() => {});
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
       // Wire the live mic stream into an analyser for waveform visualization.
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      audioCtxRef.current = audioCtx;
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
       source.connect(analyser);
       onAnalyser?.(analyser);
 
-      const mimeType = pickMimeType();
+      const mimeType = pickRecordingMimeType((type) => MediaRecorder.isTypeSupported(type));
       const recorder = mimeType
         ? new MediaRecorder(stream, { mimeType })
         : new MediaRecorder(stream);
@@ -102,16 +121,15 @@ export default function RecordButton({ disabled, onRecordingComplete, onAnalyser
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, {
-          type: recorder.mimeType || "audio/webm",
-        });
+        const type = recorder.mimeType || chunksRef.current[0]?.type || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type });
         chunksRef.current = [];
         cleanupStream();
         onAnalyser?.(null);
 
         const durationMs = Date.now() - startedAtRef.current;
         if (durationMs < MIN_RECORDING_MS) {
-          onRecordingComplete?.(null, { name: "TooShortError" });
+          onRecordingComplete?.(null, { name: "TooShortError", mode });
           return;
         }
         if (blob.size > 0) onRecordingComplete?.(blob);
@@ -126,7 +144,7 @@ export default function RecordButton({ disabled, onRecordingComplete, onAnalyser
 
       // Released while the mic was still opening: stop straight away (the
       // too-short check then reports it, rather than recording unattended).
-      if (!pointerHeldRef.current) stopRecording();
+      if (!pressHeldRef.current) stopRecording();
     } catch (err) {
       console.error("[RecordButton] mic access failed:", err);
       cleanupStream();
@@ -154,48 +172,113 @@ export default function RecordButton({ disabled, onRecordingComplete, onAnalyser
     audioCtxRef.current = null;
   }
 
+  /** The start of a press: tell the parent (synchronously, inside the gesture), then open the mic. */
+  function begin() {
+    pressHeldRef.current = true;
+    onPress?.();
+    startRecording();
+  }
+
   function release() {
-    pointerHeldRef.current = false;
+    pressHeldRef.current = false;
     stopRecording();
   }
 
-  const seconds = Math.floor(elapsedMs / 1000);
-  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  function switchMode() {
+    const next = mode === "hold" ? "tap" : "hold";
+    setMode(next);
+    try {
+      localStorage.setItem(MODE_KEY, next);
+    } catch {
+      /* storage unavailable: the choice just won't survive a reload */
+    }
+  }
+
+  const tap = mode === "tap";
+  const clock = formatClock(elapsedMs / 1000);
   const nearLimit = recording && elapsedMs > MAX_RECORDING_MS - 10_000;
   const label = recording
-    ? `Release to send · ${clock}${nearLimit ? ` (max ${MAX_RECORDING_MS / 1000}s)` : ""}`
+    ? `${tap ? "Tap to send" : "Release to send"} · ${clock}${nearLimit ? ` (max ${MAX_RECORDING_MS / 1000}s)` : ""}`
     : requesting
       ? "Starting mic…"
-      : "Hold to speak";
+      : tap
+        ? "Tap to speak"
+        : "Hold to speak";
 
   return (
-    <button
-      type="button"
-      disabled={disabled || requesting}
-      // Pointer Events (not separate mouse/touch handlers) so mouse, touch,
-      // and pen all go through one path with no synthetic-mouse-after-touch
-      // double-fire, and setPointerCapture keeps the up/cancel event routed
-      // here even if a finger drifts off the button mid-hold. touch-none
-      // (below) stops the browser from treating the hold as a page-scroll
-      // gesture, which is what onTouchStart's now-ineffective preventDefault
-      // was trying (and failing, since React's touch listeners are passive)
-      // to do.
-      onPointerDown={(e) => {
-        e.currentTarget.setPointerCapture?.(e.pointerId);
-        pointerHeldRef.current = true;
-        startRecording();
-      }}
-      onPointerUp={release}
-      onPointerCancel={release}
-      className={`flex h-14 w-full touch-none items-center justify-center gap-3 text-[11px] font-bold tracking-[0.2em] uppercase transition select-none focus:outline-none focus-visible:ring-4 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-50 ${
-        recording ? "cursor-pointer bg-brand text-on-brand" : "cursor-pointer bg-foreground text-background hover:bg-brand hover:text-on-brand"
-      }`}
-      aria-pressed={recording}
-      aria-label={recording ? "Recording — release to send" : "Hold to talk"}
-    >
-      <MicIcon className="h-4 w-4" />
-      {label}
-    </button>
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        disabled={disabled}
+        // A `disabled` button stops receiving the release of the press that is still down, so while the mic is
+        // opening the button is only marked aria-disabled: the release must still get through.
+        aria-disabled={requesting || undefined}
+        aria-describedby="mic-hint"
+        // Pointer Events (not separate mouse/touch handlers) so mouse, touch,
+        // and pen all go through one path with no synthetic-mouse-after-touch
+        // double-fire, and setPointerCapture keeps the up/cancel event routed
+        // here even if a finger drifts off the button mid-hold. touch-none
+        // (below) stops the browser from treating the hold as a page-scroll
+        // gesture, which is what onTouchStart's now-ineffective preventDefault
+        // was trying (and failing, since React's touch listeners are passive)
+        // to do.
+        onPointerDown={(e) => {
+          if (tap) return;
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+          begin();
+        }}
+        onPointerUp={() => !tap && release()}
+        onPointerCancel={() => !tap && release()}
+        // The keyboard version of holding: Space or Enter down starts, up sends. preventDefault stops the
+        // browser turning the same key press into a click as well. Losing focus counts as letting go.
+        onKeyDown={(e) => {
+          if (tap || e.repeat || !isActivationKey(e)) return;
+          e.preventDefault();
+          keyHeldRef.current = true;
+          begin();
+        }}
+        onKeyUp={(e) => {
+          if (tap || !isActivationKey(e) || !keyHeldRef.current) return;
+          e.preventDefault();
+          keyHeldRef.current = false;
+          release();
+        }}
+        onBlur={() => {
+          if (keyHeldRef.current) {
+            keyHeldRef.current = false;
+            release();
+          }
+        }}
+        // Tap mode: a click (a tap, or Enter/Space, which browsers turn into a click) starts, and the next one sends.
+        onClick={() => {
+          if (!tap) return;
+          if (recording || requesting) release();
+          else begin();
+        }}
+        className={`flex h-14 w-full touch-none items-center justify-center gap-3 text-[11px] font-bold tracking-[0.2em] uppercase transition select-none focus:outline-none focus-visible:ring-4 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-50 ${
+          requesting ? "opacity-50" : ""
+        } ${recording ? "cursor-pointer bg-brand text-on-brand" : "cursor-pointer bg-foreground text-background hover:bg-brand hover:text-on-brand"}`}
+        aria-pressed={recording}
+        aria-label={recording ? (tap ? "Recording — tap to send" : "Recording — release to send") : tap ? "Tap to talk" : "Hold to talk"}
+      >
+        <MicIcon className="h-4 w-4" />
+        {label}
+      </button>
+
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs leading-normal text-mute">
+        <span id="mic-hint">
+          {tap ? "Tap to start recording, tap again to send." : "Hold to record, release to send. With a keyboard, hold Space or Enter."}
+        </span>
+        <button
+          type="button"
+          onClick={switchMode}
+          disabled={recording || requesting}
+          className="cursor-pointer underline underline-offset-[3px] transition hover:text-brand disabled:cursor-not-allowed disabled:no-underline disabled:opacity-60"
+        >
+          {tap ? "Switch to hold-to-talk" : "Switch to tap-to-talk"}
+        </button>
+      </div>
+    </div>
   );
 }
 
