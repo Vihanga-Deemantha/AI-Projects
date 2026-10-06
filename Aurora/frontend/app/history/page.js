@@ -84,7 +84,7 @@ function SessionList() {
             <StatCard value={data.total} label="Sessions" />
             <StatCard value={sum("turn_count")} label={`Turns${partial}`} />
             <StatCard value={sum("correction_count")} label={`Corrections${partial}`} />
-            <StatCard value={formatDuration(sum("duration_seconds"))} label={`Time spoken${partial}`} />
+            <StatCard value={formatDuration(sum("duration_seconds"))} label={`Total time${partial}`} />
           </div>
 
           <ul className="mt-5.5 flex flex-col border border-panel-border bg-panel">
@@ -108,11 +108,15 @@ function SessionList() {
                       </div>
                       <div className="mt-1 text-xs text-mute">
                         {formatDate(s.started_at)} · with {who.name}
+                        {s.difficulty ? ` · ${s.difficulty.label} level` : ""}
                         {s.is_complete ? "" : " · unfinished"}
                       </div>
                     </div>
                     <Figure value={s.turn_count} label="Turns" className="min-w-15.5" />
+                    <Figure value={s.overall_score ?? "—"} label="Score" className="min-w-15.5" />
                     <Figure value={s.correction_count} label="Fixes" className="min-w-15.5" accent />
+                    <Figure value={s.avg_fluency ?? "—"} label="Fluency" className="min-w-15.5" />
+                    <Figure value={s.avg_clarity ?? "—"} label="Clarity" className="min-w-15.5" />
                     <Figure value={formatDuration(s.duration_seconds)} label="Length" className="min-w-18" />
                     <span className="text-[15px] text-mute" aria-hidden="true">&rarr;</span>
                   </Link>

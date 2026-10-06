@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import AppSidebar from "@/components/AppSidebar";
 import SessionSetup from "@/components/SessionSetup";
 import SessionControls from "@/components/SessionControls";
@@ -9,9 +11,11 @@ import WaveformHero from "@/components/WaveformHero";
 import ConversationView from "@/components/ConversationView";
 import CorrectionsPanel from "@/components/CorrectionsPanel";
 import LatencyBadge from "@/components/LatencyBadge";
-import { endSession, getOptions, startSession, streamMessage } from "@/lib/api";
+import TodaysPractice from "@/components/TodaysPractice";
+import { endSession, getDifficulty, getOptions, getPracticeToday, startSession, streamMessage } from "@/lib/api";
 import { getStoredUser, onUserUpdated, updateProfile } from "@/lib/auth";
 import { getCompanion } from "@/lib/characters";
+import { speaks } from "@/lib/accents";
 import { createAudioQueue } from "@/lib/audioQueue";
 import AuthGuard from "@/components/AuthGuard";
 
@@ -20,7 +24,10 @@ let nextMessageId = 1;
 export default function PracticePage() {
   return (
     <AuthGuard>
-      <Practice />
+      {/* Practice reads ?focus=... (set by the "Practise this" links on the progress page). */}
+      <Suspense fallback={null}>
+        <Practice />
+      </Suspense>
     </AuthGuard>
   );
 }
@@ -45,15 +52,22 @@ function Practice() {
   const [correctionsRefreshKey, setCorrectionsRefreshKey] = useState(0);
   const [correctionsCount, setCorrectionsCount] = useState(0);
   const [error, setError] = useState(null);
+  // Non-fatal heads-up from the server (e.g. one sentence couldn't be spoken).
+  const [notice, setNotice] = useState(null);
   const [playbackAnalyser, setPlaybackAnalyser] = useState(null);
   const [user, setUser] = useState(null);
+  // Today's practice (Phase 9): the learner's top live weakness, and the focus chosen for the next session.
+  const [today, setToday] = useState(null);
+  const [focus, setFocus] = useState(null);
+  // Difficulty (Phase 10): the level the NEXT session will run at, and the level of the one that is running.
+  const [level, setLevel] = useState(null);
+  const [sessionLevel, setSessionLevel] = useState(null);
+  const searchParams = useSearchParams();
+  const refreshTodayTimerRef = useRef(null);
 
   const audioQueueRef = useRef(null);
+  const saveQueueRef = useRef(Promise.resolve()); // profile saves from the setup panel, one at a time
   const currentAuraMessageIdRef = useRef(null);
-  const endCorrectionsTimeoutRef = useRef(null);
-
-  // Cancel any pending catch-up corrections poll (see handleEndSession) on unmount.
-  useEffect(() => () => clearTimeout(endCorrectionsTimeoutRef.current), []);
 
   // For the user's own chat bubbles (their avatar, WhatsApp-style). Read
   // after mount (localStorage is client-only) and stay in sync with edits
@@ -74,14 +88,35 @@ function Practice() {
         // still valid options; otherwise fall back to the server defaults.
         const saved = getStoredUser();
         const valid = (list, id, fallback) => (list.some((x) => x.id === id) ? id : fallback);
-        setSetupValue({
-          voice: valid(opts.voices, saved?.preferred_voice, opts.defaults.voice),
-          style: valid(opts.styles, saved?.preferred_style, opts.defaults.style),
-          scenario: opts.defaults.scenario,
-        });
+        const voice = valid(opts.voices, saved?.preferred_voice, opts.defaults.voice);
+        // A style brings an accent, and not every companion has a voice for every accent: if the saved pair
+        // doesn't work, start from Standard English rather than from a pair the server would refuse.
+        const savedStyle = valid(opts.styles, saved?.preferred_style, opts.defaults.style);
+        const style = speaks(opts, voice, savedStyle) ? savedStyle : opts.defaults.style;
+        setSetupValue({ voice, style, scenario: opts.defaults.scenario });
+        // Arriving from a "Practise this" link: preselect that focus and the scenario where it comes up naturally.
+        const wanted = searchParams.get("focus");
+        const area = wanted && opts.focus_areas?.find((f) => f.id === wanted);
+        if (area) {
+          setFocus(area.id);
+          setSetupValue((prev) => ({ ...prev, scenario: opts.scenarios.some((x) => x.id === area.scenario) ? area.scenario : prev.scenario }));
+        }
       })
       .catch(() => setError("Could not reach the AURA backend. Is it running on port 8000?"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount; the focus param is only read at arrival
   }, []);
+
+  // Today's practice and the difficulty level, plus a refresh timer cleaned up on unmount.
+  useEffect(() => {
+    refreshGuidance();
+    return () => clearTimeout(refreshTodayTimerRef.current);
+  }, []);
+
+  // Guidance is a nicety; it must never block practising, so a failure is just ignored.
+  function refreshGuidance() {
+    getPracticeToday().then((r) => setToday(r.exercise)).catch(() => {});
+    getDifficulty().then(setLevel).catch(() => {});
+  }
 
   // Session timer. Stops (without resetting) the moment the session ends, so
   // the recap shows the elapsed time the conversation actually ran for.
@@ -108,16 +143,17 @@ function Practice() {
 
   // Picking a companion or style also saves it as the profile preference, so
   // it is the default next time and shows in the sidebar. Fire-and-forget: a
-  // failed save shouldn't block starting a session.
+  // failed save shouldn't block starting a session. Saves go one at a time and
+  // each carries the whole pair, because the server only accepts a style the
+  // companion can speak: a style picked right after a companion must not be
+  // checked against the companion that was saved before it.
   function handleSetupChange(next) {
-    const voiceChanged = next.voice !== setupValue.voice;
-    const styleChanged = next.style !== setupValue.style;
+    const changed = next.voice !== setupValue.voice || next.style !== setupValue.style;
     setSetupValue(next);
-    if (voiceChanged || styleChanged) {
-      updateProfile({
-        preferredVoice: voiceChanged ? next.voice : undefined,
-        preferredStyle: styleChanged ? next.style : undefined,
-      }).catch(() => {});
+    if (changed) {
+      saveQueueRef.current = saveQueueRef.current.then(() =>
+        updateProfile({ preferredVoice: next.voice, preferredStyle: next.style }).catch(() => {}),
+      );
     }
   }
 
@@ -134,10 +170,10 @@ function Practice() {
   async function ensureSession() {
     if (session && !sessionEnded) return session;
 
-    clearTimeout(endCorrectionsTimeoutRef.current);
-    const data = await startSession(setupValue);
-    const newSession = { conversationId: data.conversation_id };
+    const data = await startSession({ ...setupValue, focus });
+    const newSession = { conversationId: data.conversation_id, style: data.style };
     setSession(newSession);
+    setSessionLevel(data.difficulty ?? null);
     setSessionEnded(false);
     setMessages([]);
     setTurns(0);
@@ -146,6 +182,7 @@ function Practice() {
     setCorrectionsCount(0);
     setCorrectionsRefreshKey(0);
     setError(null);
+    setNotice(null);
     getAudioQueue(); // created during a user gesture, for browser autoplay policies
     return newSession;
   }
@@ -174,17 +211,22 @@ function Practice() {
     setPlaybackAnalyser(null);
     setPaused(false);
     setSessionEnded(true);
-    // The last turn's grammar/vocab analysis runs in the background and can
-    // still be in flight when its one-shot poll fires. Poll again now, and
-    // once more after a few seconds, so a slow analysis still makes it into
-    // the recap instead of the count freezing one short.
+    // The last turn's grammar/vocab analysis may still be running. Ask the
+    // corrections panel to look again: it keeps polling for as long as the
+    // server says analysis is pending, so a slow one still makes it into the
+    // recap instead of the count freezing one short.
     if (session) {
       setCorrectionsRefreshKey((k) => k + 1);
-      clearTimeout(endCorrectionsTimeoutRef.current);
-      endCorrectionsTimeoutRef.current = setTimeout(() => {
-        setCorrectionsRefreshKey((k) => k + 1);
-      }, 5000);
     }
+    // The focus was for THIS session; and the session's mistakes and score change what is worth
+    // practising next and how hard it should be, so look again once its report has been written
+    // (usually seconds, but it waits for the last answer's analysis, so look once more later too).
+    setFocus(null);
+    clearTimeout(refreshTodayTimerRef.current);
+    refreshTodayTimerRef.current = setTimeout(() => {
+      refreshGuidance();
+      refreshTodayTimerRef.current = setTimeout(refreshGuidance, 14000);
+    }, 6000);
     // Deliberately NOT clearing messages/turns/sessionSeconds/timings/
     // correctionsCount here. The finished conversation stays on screen as a
     // recap — with a "Start new session" action — instead of the dashboard
@@ -212,6 +254,7 @@ function Practice() {
     if (!blob) return;
 
     setError(null);
+    setNotice(null);
     setIsProcessing(true);
     currentAuraMessageIdRef.current = null;
 
@@ -220,11 +263,16 @@ function Practice() {
       const activeSession = await ensureSession();
 
       await streamMessage(activeSession.conversationId, blob, {
-        onTranscript: (text) => {
+        onTranscript: (text, messageId) => {
           setMessages((prev) => [
             ...prev,
-            { id: nextMessageId++, role: "user", text, timestamp: nowLabel() },
+            { id: nextMessageId++, messageId, role: "user", text, timestamp: nowLabel() },
           ]);
+        },
+        // How they spoke (rate, pauses, fillers) arrives right after the transcript.
+        onMetrics: ({ message_id, fluency, clarity }) => {
+          if (!fluency && !clarity) return;
+          setMessages((prev) => prev.map((m) => (m.messageId === message_id ? { ...m, fluency, clarity } : m)));
         },
         onAudioChunk: (chunk) => {
           getAudioQueue().enqueue(chunk.data, chunk.text);
@@ -272,6 +320,7 @@ function Practice() {
           setCorrectionsRefreshKey((k) => k + 1);
           setIsProcessing(false);
         },
+        onWarning: (message) => setNotice(message),
         onError: (message) => {
           setError(message);
           setIsProcessing(false);
@@ -288,10 +337,13 @@ function Practice() {
 
   // Single source of truth for the session status badge + controls, shared
   // between SessionControls and WaveformHero so they never disagree.
+  // Holding the mic is "listening" even before the first turn has created a
+  // session (the session is opened when the recording is sent).
   let phase = "idle";
-  if (sessionActive) {
-    if (micAnalyser) phase = "recording";
-    else if (isProcessing) phase = "thinking";
+  if (micAnalyser) {
+    phase = "recording";
+  } else if (sessionActive) {
+    if (isProcessing) phase = "thinking";
     else if (paused) phase = "paused";
     else if (isPlaying) phase = "speaking";
     else phase = "active";
@@ -299,6 +351,20 @@ function Practice() {
     phase = "ended";
   }
   const canPause = phase === "speaking" || phase === "paused";
+
+  // Session averages across the turns that have metrics so far.
+  const average = (scores) => (scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null);
+  const avgFluency = average(messages.filter((m) => m.fluency).map((m) => m.fluency.score));
+  const avgClarity = average(messages.filter((m) => m.clarity).map((m) => m.clarity.score));
+
+  const focusLabel = options?.focus_areas?.find((f) => f.id === focus)?.label ?? today?.label;
+
+  function acceptTodaysPractice(exercise) {
+    setFocus(exercise.focus);
+    if (options?.scenarios.some((x) => x.id === exercise.suggested_scenario)) {
+      setSetupValue((prev) => ({ ...prev, scenario: exercise.suggested_scenario }));
+    }
+  }
 
   const companion = getCompanion(setupValue.voice);
   const scenarioLabel = options?.scenarios.find((x) => x.id === setupValue.scenario)?.label;
@@ -316,6 +382,7 @@ function Practice() {
           </div>
           <SessionControls
             phase={phase}
+            hasSession={sessionActive}
             starting={starting}
             canPause={canPause}
             onStart={handleStart}
@@ -329,6 +396,11 @@ function Practice() {
             {error}
           </div>
         )}
+        {notice && !error && (
+          <div role="status" className="mt-5 border border-panel-border bg-field px-4 py-3 text-sm text-soft">
+            {notice}
+          </div>
+        )}
 
         {phase === "ended" && (
           <div className="mt-5 border border-brand bg-brand-soft px-4.5 py-3.5 text-sm">
@@ -336,6 +408,16 @@ function Practice() {
             {turns} {turns === 1 ? "turn" : "turns"} · {formatDuration(sessionSeconds)} ·{" "}
             {correctionsCount} {correctionsCount === 1 ? "correction" : "corrections"} — saved to your history.
             Ready when you are — hold the mic or use &ldquo;Start new session&rdquo; above.
+            {turns > 0 && session && (
+              <div className="mt-3">
+                <Link
+                  href={`/history/${session.conversationId}/report`}
+                  className="inline-flex h-10 items-center bg-foreground px-4.5 text-[10px] font-bold tracking-[0.16em] text-background uppercase transition hover:bg-brand hover:text-on-brand"
+                >
+                  See your report &rarr;
+                </Link>
+              </div>
+            )}
           </div>
         )}
 
@@ -358,13 +440,29 @@ function Practice() {
               </div>
             )}
 
-            <StatsRow turns={turns} sessionSeconds={sessionSeconds} correctionsCount={correctionsCount} />
+            <StatsRow
+              turns={turns}
+              sessionSeconds={sessionSeconds}
+              correctionsCount={correctionsCount}
+              fluencyScore={avgFluency}
+              clarityScore={avgClarity}
+            />
+
+            <TodaysPractice
+              exercise={today}
+              focus={focus}
+              label={focusLabel}
+              sessionActive={sessionActive}
+              onAccept={acceptTodaysPractice}
+              onClear={() => setFocus(null)}
+            />
 
             <SessionSetup
               options={options}
               value={setupValue}
               onChange={handleSetupChange}
               sessionActive={sessionActive}
+              difficulty={sessionActive ? sessionLevel : level}
             />
           </div>
 
@@ -372,6 +470,7 @@ function Practice() {
             <ConversationView
               messages={messages}
               companionId={companion.id}
+              style={session?.style ?? setupValue.style}
               thinking={awaitingReply}
               scenarioLabel={scenarioLabel}
               user={user}

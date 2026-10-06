@@ -4,8 +4,6 @@
 # Stop with:  docker compose down
 # Wipe DB:    docker compose down -v
 
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16-alpine

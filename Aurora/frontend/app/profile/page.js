@@ -1,12 +1,15 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AuthGuard from "@/components/AuthGuard";
 import AppSidebar from "@/components/AppSidebar";
-import { getOptions } from "@/lib/api";
+import DifficultyLabel from "@/components/DifficultyLabel";
+import { getDifficulty, getOptions } from "@/lib/api";
 import {
   changePassword,
+  deleteAccount,
   disconnectGoogle,
   getGoogleAuthUrl,
   getMe,
@@ -14,7 +17,8 @@ import {
   updateProfile,
   uploadAvatar,
 } from "@/lib/auth";
-import { CAST, faceSrc } from "@/lib/characters";
+import { speaks, styleAccent, whyNot, withArticle } from "@/lib/accents";
+import { CAST, companionHint, faceSrc } from "@/lib/characters";
 
 const GOOGLE_LINK_ERRORS = {
   google_not_configured: "Google sign-in isn't set up on this server yet.",
@@ -61,6 +65,14 @@ function Profile() {
       .catch(() => setStatus("error"));
   }, []);
 
+  // "Change" next to the difficulty on the practice page links to #difficulty; that card
+  // only exists once the profile has loaded, so the browser's own anchor jump can't find it.
+  useEffect(() => {
+    if (status === "ready" && window.location.hash === "#difficulty") {
+      document.getElementById("difficulty")?.scrollIntoView();
+    }
+  }, [status]);
+
   // A failed "Connect Google" attempt redirects back here with ?error=...
   useEffect(() => {
     const code = searchParams.get("error");
@@ -91,8 +103,10 @@ function Profile() {
             <IdentityCard user={user} onUpdated={setUser} />
             <PersonalInfoCard user={user} onUpdated={setUser} />
             <CompanionsCard user={user} onUpdated={setUser} />
+            <DifficultyCard user={user} onUpdated={setUser} />
             <SecurityCard user={user} onUpdated={setUser} />
             <ConnectedAccountsCard user={user} onUpdated={setUser} linkError={linkError} />
+            <DangerZoneCard user={user} />
           </>
         )}
       </div>
@@ -100,9 +114,9 @@ function Profile() {
   );
 }
 
-function Card({ title, subtitle, children }) {
+function Card({ id, title, subtitle, children }) {
   return (
-    <section className="mt-5.5 border border-panel-border bg-panel p-6.5">
+    <section id={id} className="mt-5.5 scroll-mt-6 border border-panel-border bg-panel p-6.5">
       <h2 className="font-display text-xl font-bold">{title}</h2>
       {subtitle && <p className="mt-2 text-[13.5px] text-soft">{subtitle}</p>}
       {children}
@@ -160,7 +174,19 @@ function IdentityCard({ user, onUpdated }) {
         </button>
         <div className="min-w-0 flex-[1_1_220px]">
           <div className="truncate font-display text-2xl font-bold">{user.display_name || "Your name"}</div>
-          <div className="mt-1 truncate text-[13px] text-mute">{user.email}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[13px] text-mute">
+            <span className="truncate">{user.email}</span>
+            {user.email_verified ? (
+              <span className="text-[10px] font-bold tracking-[0.14em] text-brand uppercase">Verified</span>
+            ) : (
+              <Link
+                href="/verify-email"
+                className="text-[10px] font-bold tracking-[0.14em] text-foreground uppercase underline underline-offset-[3px] transition hover:text-brand"
+              >
+                Not verified — verify now
+              </Link>
+            )}
+          </div>
           <p className="mt-2 text-xs text-mute">JPEG, PNG or WebP — up to 5 MB.</p>
         </div>
         <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} className={secondaryBtn}>
@@ -228,13 +254,19 @@ function PersonalInfoCard({ user, onUpdated }) {
 }
 
 function CompanionsCard({ user, onUpdated }) {
-  const [styles, setStyles] = useState([]);
+  const [options, setOptions] = useState(null);
+  const styles = options?.styles ?? [];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    getOptions().then((o) => setStyles(o.styles)).catch(() => {});
+    getOptions().then(setOptions).catch(() => {});
   }, []);
+
+  // A pair saved before styles brought an accent (or from a voice that has since gone) may have no voice behind it.
+  const savedAccent = styleAccent(options, user.preferred_style);
+  const savedPairBroken = Boolean(options) && !speaks(options, user.preferred_voice, user.preferred_style);
+  const savedName = CAST.find((c) => c.id === user.preferred_voice)?.name ?? "Your companion";
 
   async function save(patch) {
     setSaving(true);
@@ -253,16 +285,19 @@ function CompanionsCard({ user, onUpdated }) {
       <div className="mt-4.5 flex flex-wrap gap-3">
         {CAST.map((c) => {
           const active = c.id === user.preferred_voice;
+          const can = speaks(options, c.id, user.preferred_style);
+          const accentNow = styleAccent(options, user.preferred_style);
           return (
             <button
               key={c.id}
               type="button"
               onClick={() => save({ preferredVoice: c.id })}
-              disabled={saving}
+              disabled={saving || !can}
               aria-pressed={active}
-              className={`flex w-26 cursor-pointer flex-col items-center gap-1.75 border px-2.5 py-4 transition disabled:cursor-wait ${
-                active ? "border-brand bg-brand-soft" : "border-panel-border hover:border-brand"
-              }`}
+              title={can ? companionHint(c, accentNow) : whyNot(options, c.id, user.preferred_style)}
+              className={`flex w-26 flex-col items-center gap-1.75 border px-2.5 py-4 transition ${
+                saving ? "cursor-wait" : can ? "cursor-pointer" : "cursor-not-allowed"
+              } ${can ? "" : "opacity-40"} ${active ? "border-brand bg-brand-soft" : "border-panel-border hover:border-brand"}`}
             >
               <span
                 role="img"
@@ -283,23 +318,114 @@ function CompanionsCard({ user, onUpdated }) {
           <div className="flex flex-wrap">
             {styles.map((s) => {
               const active = s.id === user.preferred_style;
+              const can = speaks(options, user.preferred_voice, s.id);
               return (
                 <button
                   key={s.id}
                   type="button"
                   onClick={() => save({ preferredStyle: s.id })}
-                  disabled={saving}
+                  disabled={saving || !can}
                   aria-pressed={active}
-                  className={`-mr-px -mb-px cursor-pointer border px-3.5 py-2.25 text-[12.5px] whitespace-nowrap transition disabled:cursor-wait ${
-                    active ? "border-brand bg-brand font-bold text-on-brand" : "border-panel-border font-medium text-soft hover:border-brand"
-                  }`}
+                  title={can ? undefined : whyNot(options, user.preferred_voice, s.id)}
+                  className={`-mr-px -mb-px border px-3.5 py-2.25 text-[12.5px] whitespace-nowrap transition ${
+                    saving ? "cursor-wait" : can ? "cursor-pointer" : "cursor-not-allowed"
+                  } ${can ? "" : "opacity-40"} ${active ? "border-brand bg-brand font-bold text-on-brand" : "border-panel-border font-medium text-soft hover:border-brand"}`}
                 >
                   {s.label}
                 </button>
               );
             })}
           </div>
-          <p className="mt-2.5 text-[11.5px] text-mute">Styles change vocabulary &amp; phrasing, not the voice&apos;s accent.</p>
+          <p className="mt-2.5 text-[11.5px] leading-normal text-mute">
+            A style sets the words your coach uses and the accent you hear: your companion adopts it. Dimmed styles have no matching voice for
+            this companion yet.
+          </p>
+          <p className="mt-2 text-[11px] leading-normal text-mute">
+            Regional accents use real speakers from the CSTR VCTK Corpus and the Alba voice (University of Edinburgh, CC BY 4.0), run with Piper.
+          </p>
+        </div>
+      )}
+      {savedPairBroken && (
+        <Notice>
+          {savedAccent
+            ? `${savedName} doesn't have ${withArticle(savedAccent)} voice yet, so your sessions will start in Standard English until you pick a different companion or style.`
+            : "Your saved speaking style isn't available on this server, so your sessions will start in Standard English until you pick another."}
+        </Notice>
+      )}
+      {error && <Notice>{error}</Notice>}
+    </Card>
+  );
+}
+
+/**
+ * Pin a difficulty level, or leave it automatic (the level follows how recent sessions
+ * scored). `user.difficulty_override` is the pinned level, or null for automatic.
+ */
+function DifficultyCard({ user, onUpdated }) {
+  const [levels, setLevels] = useState([]);
+  const [info, setInfo] = useState(null); // GET /api/practice/difficulty
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    getOptions().then((o) => setLevels(o.difficulties)).catch(() => {});
+    getDifficulty().then(setInfo).catch(() => {});
+  }, []);
+
+  async function choose(difficultyOverride) {
+    setSaving(true);
+    setError(null);
+    try {
+      onUpdated(await updateProfile({ difficultyOverride }));
+      setInfo(await getDifficulty());
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const pinned = user.difficulty_override ?? null;
+  const chip = (active) =>
+    `-mr-px -mb-px cursor-pointer border px-3.5 py-2.25 text-[12.5px] whitespace-nowrap transition disabled:cursor-wait ${
+      active ? "border-brand bg-brand font-bold text-on-brand" : "border-panel-border font-medium text-soft hover:border-brand"
+    }`;
+
+  return (
+    <Card
+      id="difficulty"
+      title="Difficulty"
+      subtitle="How demanding your coach's questions are. Automatic follows how your recent sessions went, one step at a time."
+    >
+      <div className="mt-4.5 flex flex-wrap" role="group" aria-label="Difficulty level">
+        <button type="button" onClick={() => choose(null)} disabled={saving} aria-pressed={pinned === null} className={chip(pinned === null)}>
+          Automatic
+        </button>
+        {levels.map((l) => (
+          <button
+            key={l.level}
+            type="button"
+            onClick={() => choose(l.level)}
+            disabled={saving}
+            aria-pressed={pinned === l.level}
+            className={chip(pinned === l.level)}
+          >
+            {l.label}
+          </button>
+        ))}
+      </div>
+
+      {info && (
+        <div className="mt-4.5">
+          <div className="text-[10px] font-bold tracking-[0.16em] text-soft uppercase">{info.mode === "manual" ? "Your level" : "Right now"}</div>
+          <div className="mt-1.5 font-display text-[19px] leading-none font-bold">
+            <DifficultyLabel level={info} />
+          </div>
+          <p className="mt-2 text-[13px] leading-normal text-soft">
+            {info.reason}
+            {info.mode === "manual" && ` Automatic would currently choose ${info.auto_label}.`}
+          </p>
+          <p className="mt-1 text-[13px] leading-normal text-mute">For example: &ldquo;{info.example}&rdquo;</p>
         </div>
       )}
       {error && <Notice>{error}</Notice>}
@@ -324,8 +450,9 @@ function SecurityCard({ user, onUpdated }) {
 
     setSaving(true);
     try {
-      await changePassword({ currentPassword: user.has_password ? current : undefined, newPassword: next });
-      onUpdated({ ...user, has_password: true });
+      // Other sessions are signed out by the server; this one gets a fresh token.
+      const updated = await changePassword({ currentPassword: user.has_password ? current : undefined, newPassword: next });
+      onUpdated(updated);
       setCurrent(""); setNext(""); setConfirm("");
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -422,7 +549,7 @@ function ConnectedAccountsCard({ user, onUpdated, linkError }) {
           </button>
         ) : (
           <a
-            href={getGoogleAuthUrl({ link: true })}
+            href={getGoogleAuthUrl()}
             onClick={(e) => startGoogleAuth(e, { link: true, onError: setError })}
             className={`${secondaryBtn} inline-flex items-center`}
           >
@@ -431,6 +558,67 @@ function ConnectedAccountsCard({ user, onUpdated, linkError }) {
         )}
       </div>
       {(error || linkError) && <Notice>{error || linkError}</Notice>}
+    </Card>
+  );
+}
+
+function DangerZoneCard({ user }) {
+  const router = useRouter();
+  const [expanded, setExpanded] = useState(false);
+  const [confirmEmail, setConfirmEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function handleDelete(e) {
+    e.preventDefault();
+    setError(null);
+    setDeleting(true);
+    try {
+      await deleteAccount({ confirmEmail, password: user.has_password ? password : undefined });
+      router.replace("/");
+    } catch (err) {
+      setError(err.message);
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <Card title="Delete account">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
+        <p className="max-w-[34em] text-[13px] leading-normal text-soft">
+          Permanently removes your account and everything under it — every session, transcript,
+          correction and report. This can&apos;t be undone.
+        </p>
+        <button type="button" onClick={() => setExpanded((v) => !v)} className={secondaryBtn}>
+          {expanded ? "Cancel" : "Delete my account"}
+        </button>
+      </div>
+
+      {expanded && (
+        <form onSubmit={handleDelete} className="mt-4.5 flex flex-col gap-3">
+          <input
+            type="email" required value={confirmEmail} onChange={(e) => setConfirmEmail(e.target.value)}
+            placeholder={`Type ${user.email} to confirm`} autoComplete="off" className={input}
+          />
+          {user.has_password && (
+            <input
+              type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
+              placeholder="Your password" autoComplete="current-password" className={input}
+            />
+          )}
+          {error && <Notice>{error}</Notice>}
+          <div>
+            <button
+              type="submit"
+              disabled={deleting || confirmEmail.trim().toLowerCase() !== (user.email || "").toLowerCase()}
+              className={primaryBtn}
+            >
+              {deleting ? "Deleting…" : "Permanently delete"}
+            </button>
+          </div>
+        </form>
+      )}
     </Card>
   );
 }

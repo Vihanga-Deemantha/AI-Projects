@@ -9,7 +9,7 @@
  * automatically with whatever companion/style/scenario is currently
  * selected, so this button is optional, not a gate.
  */
-export default function SessionControls({ phase, starting, canPause, onStart, onTogglePause, onEnd }) {
+export default function SessionControls({ phase, hasSession = true, starting, canPause, onStart, onTogglePause, onEnd }) {
   const badge = PHASE_BADGE[phase] ?? PHASE_BADGE.idle;
 
   return (
@@ -28,7 +28,7 @@ export default function SessionControls({ phase, starting, canPause, onStart, on
         >
           {starting ? "Starting…" : phase === "ended" ? "Start new session" : "Start session"}
         </button>
-      ) : (
+      ) : !hasSession ? null : (
         <>
           {canPause && (
             <button

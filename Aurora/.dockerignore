@@ -1,0 +1,26 @@
+# What the backend image build must not see: secrets, the frontend, local models and tooling.
+.git
+.github
+.vscode
+
+# Secrets: never baked into an image
+.env
+.env.*
+!.env.example
+
+# Not part of the server
+frontend/
+venv/
+voices/
+*.md
+docker-compose.yml
+local_client.py
+main_prototype.py
+check_setup.py
+pytest.ini
+
+# Caches and tests
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+backend/tests/

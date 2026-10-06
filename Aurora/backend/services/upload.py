@@ -6,11 +6,14 @@ services/stt.py) — the router calls it via asyncio.to_thread() rather than
 blocking the event loop for the upload+transform round trip.
 """
 import io
+import logging
 
 import cloudinary
 import cloudinary.uploader
 
 from backend.config import CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, CLOUDINARY_CLOUD_NAME
+
+logger = logging.getLogger("aura.upload")
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -61,3 +64,18 @@ def upload_avatar(file_bytes: bytes, content_type: str, user_id: str) -> str:
         transformation=[{"width": 256, "height": 256, "crop": "fill", "gravity": "face"}],
     )
     return result["secure_url"]
+
+
+def delete_avatar(user_id: str) -> None:
+    """
+    Best-effort removal of a user's stored avatar (used when an account is
+    deleted). Never raises: the account is already gone, and an orphaned image
+    is not worth failing a request over.
+    """
+    try:
+        _ensure_configured()
+        cloudinary.uploader.destroy(f"aura_avatars/{user_id}")
+    except AvatarUploadError:
+        pass  # storage not configured — nothing was ever uploaded
+    except Exception:
+        logger.exception("Could not delete avatar for user %s", user_id)

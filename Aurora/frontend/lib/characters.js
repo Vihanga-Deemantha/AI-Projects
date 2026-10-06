@@ -6,50 +6,57 @@
  * so a stored `voice` / `preferred_voice` is directly a companion id.
  */
 
+import { withArticle } from "@/lib/accents";
+
 // Sprites live on a shared 700x680 canvas, feet pinned to the bottom edge.
 export const SPRITE_ASPECT = 700 / 680;
 
+// `tag` is one playful word for the companion's vibe, shown next to their name. It is deliberately NOT
+// the accent, because the accent follows the speaking style (American / British / Scottish / ...): a style
+// sets the coach's words AND the accent, and the companion adopts it. `accent` is the accent of the
+// companion's OWN voice (its Piper model's locale: en_US or en_GB), what they sound like under Standard
+// English; it appears in a hover tooltip (see companionHint) rather than on the card.
 export const CAST = [
   {
-    id: "eida", name: "Eida", tag: "Introvert",
+    id: "eida", name: "Eida", tag: "Zen", accent: "American",
     tagline: "The one who lets the silence sit.",
     blurb: "Eida speaks slowly and leaves the pauses alone. She will not talk over you and she will not fill a gap you are still thinking in.",
-    traits: ["Gentle pace", "Long pauses", "Calm voice"],
+    traits: ["Gentle pace", "Long pauses", "Calm voice", "American by default"],
     line: "Eida is waiting. She never rushes you.",
   },
   {
-    id: "maya", name: "Maya", tag: "Extrovert",
+    id: "maya", name: "Maya", tag: "Bubbly", accent: "American",
     tagline: "The one who keeps it moving.",
     blurb: "Maya is cheerful, quick and slightly relentless. She reacts out loud to everything you say and changes subject twice a minute.",
-    traits: ["Fast turns", "High energy", "Upbeat voice"],
+    traits: ["Fast turns", "High energy", "Upbeat voice", "American by default"],
     line: "Maya is waiting. She talks fast and laughs faster.",
   },
   {
-    id: "amy", name: "Amy", tag: "American",
+    id: "amy", name: "Amy", tag: "Sunny", accent: "American",
     tagline: "The easiest voice to follow at full speed.",
     blurb: "Friendly American English, clean consonants, nothing showy. The voice most learners can follow without asking for a repeat.",
-    traits: ["Friendly", "Clear diction", "en_US"],
+    traits: ["Friendly", "Clear diction", "American by default"],
     line: "Amy is waiting. The clearest voice of the six.",
   },
   {
-    id: "ryan", name: "Ryan", tag: "American",
+    id: "ryan", name: "Ryan", tag: "Cozy", accent: "American",
     tagline: "The one who goes deeper instead of wider.",
     blurb: "The lowest, warmest register of the six. He asks follow-up questions rather than new ones, so conversations stay on one subject.",
-    traits: ["Warm tone", "Deep follow-ups", "en_US"],
+    traits: ["Warm tone", "Deep follow-ups", "American by default"],
     line: "Ryan is waiting. He asks the second question.",
   },
   {
-    id: "alan", name: "Alan", tag: "British",
+    id: "alan", name: "Alan", tag: "Stickler", accent: "British",
     tagline: "The one to practise with before it matters.",
     blurb: "British English, measured, exacting about tense and register. He notices when you slip from formal into casual mid-sentence.",
-    traits: ["Formal register", "Exacting", "en_GB"],
+    traits: ["Formal register", "Exacting", "British by default"],
     line: "Alan is waiting. Mind your tenses.",
   },
   {
-    id: "lessac", name: "Lessac", tag: "American",
+    id: "lessac", name: "Lessac", tag: "Dramatic", accent: "American",
     tagline: "The one who shows you where the stress lands.",
     blurb: "Lessac speaks the way people speak when they are being listened to. Wide intonation and deliberate emphasis make him the best of the six for hearing which word in a sentence is carrying it.",
-    traits: ["Expressive", "Wide range", "en_US"],
+    traits: ["Expressive", "Wide range", "American by default"],
     line: "Lessac is waiting. He will show you where the stress lands.",
   },
 ];
@@ -63,6 +70,20 @@ export function getCompanion(id) {
 
 export function isCompanion(id) {
   return Boolean(CAST_BY_ID[id]);
+}
+
+/**
+ * Hover text for a companion: the accent you will hear and what makes them different. Their own voice
+ * has a home accent, but the speaking style brings its own accent and the companion adopts it, e.g.
+ * "Alan · will speak with a Scottish accent, to match your speaking style. The one to practise with ...".
+ * `styleAccent` is the chosen style's accent ("Scottish"), or null for Standard English.
+ */
+export function companionHint(companion, styleAccent = null) {
+  let sound;
+  if (!styleAccent) sound = `${companion.name} · ${companion.accent} accent by default. It changes with your speaking style.`;
+  else if (styleAccent === companion.accent) sound = `${companion.name} · ${companion.accent} accent, which matches your speaking style.`;
+  else sound = `${companion.name} · will speak with ${withArticle(styleAccent)} accent, to match your speaking style.`;
+  return `${sound} ${companion.tagline}`;
 }
 
 // Marketing copy for the landing page's scenarios chapter. Keys match the

@@ -1,0 +1,5 @@
+# Everything needed to run the backend test suite:
+#   pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+#   pytest            (from the Aurora/ folder; needs Postgres: docker compose up -d)
+-r requirements.txt
+pytest==9.1.1

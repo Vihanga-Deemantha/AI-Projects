@@ -61,10 +61,12 @@ export default function AuthForm({ mode }) {
     try {
       if (isSignup) {
         await signup({ email, password, displayName });
+        // A code was just emailed; confirming it is encouraged but never blocks practising.
+        router.replace("/verify-email");
       } else {
         await login({ email, password });
+        router.replace("/practice");
       }
-      router.replace("/practice");
     } catch (err) {
       setError(err.message);
     } finally {

@@ -21,7 +21,7 @@ if config.config_file_name is not None:
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from backend.database import Base
-from backend.models import core  # noqa: F401 — imports models so Alembic can see them
+import backend.models  # noqa: F401 — registers every table on Base.metadata so Alembic can see it
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
