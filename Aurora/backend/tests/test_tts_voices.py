@@ -195,10 +195,15 @@ def test_startup_warns_about_missing_regional_models(voices_dir, models, caplog)
 
 # ── The real models (skipped where the voice files aren't installed) ─────────
 
-real = pytest.mark.skipif(
+_models_missing = pytest.mark.skipif(
     not all(tts._model_installed(f) for f in tts.ALL_MODEL_FILES),
     reason="the voice models aren't installed here (python scripts/download_voices.py)",
 )
+
+
+def real(test):
+    """A test of the genuine models: the suite's stand-in voices folder steps aside (see conftest), and it is skipped where they aren't installed."""
+    return pytest.mark.real_voices(_models_missing(test))
 
 
 @real

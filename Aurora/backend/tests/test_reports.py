@@ -1,5 +1,6 @@
 """Session reports: generation, the end-of-session flow, and the report endpoint."""
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -113,7 +114,7 @@ def test_stale_pending_turns_do_not_hold_a_report_up_forever(client, user, db):
     assert client.get(f"/api/history/sessions/{cid}/report", headers=user["headers"]).status_code == 200
 
 
-def test_old_sessions_are_reported_on_when_first_opened(client, user, db):
+def test_old_sessions_are_reported_on_when_first_opened(client, user, db, ai):
     cid = finished_session(user["user"]["id"], corrections=[mistake(), mistake(subtype="articles", original="a apple", correction="an apple")])
     assert db.query(SessionReport).count() == 0
     r = client.get(f"/api/history/sessions/{cid}/report", headers=user["headers"])
@@ -138,7 +139,7 @@ def test_a_session_where_no_analysis_finished_does_not_claim_perfect_grammar(cli
     assert scores["overall"] is None                                  # nothing at all to base a number on
 
 
-def test_words_from_unanalysed_turns_do_not_dilute_the_mistake_density(client, user):
+def test_words_from_unanalysed_turns_do_not_dilute_the_mistake_density(client, user, ai):
     """A 500-word turn whose analysis failed says nothing about mistakes, so it must not make them look rarer."""
     cid = finished_session(user["user"]["id"], turns=1, words_per_turn=20, corrections=[mistake()])
     with SessionLocal() as s:
@@ -204,6 +205,60 @@ def test_a_report_written_by_a_concurrent_writer_is_returned_not_duplicated(user
     monkeypatch.setattr(reports, "get_report", get_report_that_misses_once)
     again = reports.generate_report(cid)                 # inserts, hits the unique key, falls back to the winner's row
     assert again["id"] == winner["id"] and db.query(SessionReport).count() == 1
+
+
+def test_generators_that_arrive_together_make_one_report_and_pay_for_one_note(user, db, ai, monkeypatch):
+    """The end-of-session task and a learner opening the page can both start at once: one report, one LLM note."""
+    from backend.services import llm
+
+    cid = finished_session(user["user"]["id"], corrections=[mistake()])      # scored, so an LLM note is asked for
+    notes = []
+
+    def slow_note(messages, *args, **kwargs):
+        notes.append(1)
+        time.sleep(0.4)                       # long enough for the others to arrive while this one is still writing
+        return ai.summary
+
+    monkeypatch.setattr(llm, "chat", slow_note)
+    results, errors = [], []
+
+    def generate():
+        try:
+            results.append(reports.generate_report(cid))
+        except Exception as exc:              # noqa: BLE001  (the point is that nothing is raised)
+            errors.append(exc)
+
+    threads = [threading.Thread(target=generate) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=20)
+
+    assert not errors
+    assert len(results) == 4 and len({r["id"] for r in results}) == 1
+    assert db.query(SessionReport).count() == 1
+    assert len(notes) == 1                    # the others found the first one's report instead of writing a second note
+    assert reports._in_progress == {}         # and nothing is left in the table of who is working on what
+
+
+def test_a_session_being_reported_does_not_hold_up_another(user, ai):
+    one, other = finished_session(user["user"]["id"]), finished_session(user["user"]["id"], corrections=[mistake()])
+    finished = []
+    with reports._one_at_a_time(one):          # this session's report is being written...
+        worker = threading.Thread(target=lambda: finished.append(reports.generate_report(other)))
+        worker.start()
+        worker.join(timeout=10)
+        assert finished and finished[0]["scores"]["overall"] is not None      # ...and the other one isn't kept waiting
+    assert reports._in_progress == {}
+
+
+def test_a_failed_generation_does_not_leave_its_session_locked():
+    with pytest.raises(RuntimeError):
+        with reports._one_at_a_time("some-session"):
+            raise RuntimeError("boom")
+    assert reports._in_progress == {}
+    with reports._one_at_a_time("some-session"):       # not stuck
+        pass
 
 
 def test_the_safe_entry_point_never_raises(user, monkeypatch):

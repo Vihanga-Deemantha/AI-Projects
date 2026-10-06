@@ -192,7 +192,7 @@ Upgrading an existing database: run `upgrade head` before starting the new code.
 | Latency / concurrency | `python scripts/loadtest_voice.py --users 1 3 --turns 2` | A running backend |
 | A built image | `docker build -t aura-backend .` then `python scripts/smoke_container.py` | Docker and the compose PostgreSQL; takes a few minutes |
 
-The backend suite uses in-process fakes for Whisper, Piper, Groq and email, so it needs no network, no model files and no keys, and it never touches your real database or `.env` (it refuses to run against a database whose name doesn't end in `_test`). It covers authentication and account safety, ownership checks, the voice stream (including every failure path), analysis cleaning, fluency, clarity, scoring, reports, progress, weaknesses, difficulty, rate limiting, migrations (upgrade, downgrade, data preservation, no drift) and the production checks.
+The backend suite uses in-process fakes for Whisper, Piper, Groq and email, so it needs no network, no model files and no keys, and it never touches your real database or `.env` (it refuses to run against a database whose name doesn't end in `_test`). That holds on a machine with no voices installed, which is what CI is: every test sees a stand-in voices folder (an empty placeholder per model) so the real availability logic runs, and a test that reaches the real LLM without the `ai` fixture is failed instead of calling Groq. The few tests of the genuine Piper models (`@real` in `test_tts_voices.py`, marked `real_voices`) use `voices/` and skip where it's empty, so run `python scripts/download_voices.py` first if you want them. It covers authentication and account safety, ownership checks, the voice stream (including every failure path), analysis cleaning, fluency, clarity, scoring, reports, progress, weaknesses, difficulty, rate limiting, migrations (upgrade, downgrade, data preservation, no drift) and the production checks.
 
 Run `pytest -m llm` after **any** change to the analysis prompt or model: a tweak that fixes one case can silently break another, and nothing else would notice.
 
@@ -202,7 +202,7 @@ The end-to-end tests drive the real app in Chrome with a fake microphone playing
 
 ESLint's `no-undef` rule is switched on in `frontend/eslint.config.mjs` (Next's preset leaves it off): a variable that exists only in another component builds cleanly and then crashes the page when it is opened, which is exactly what the full journey caught once.
 
-GitHub Actions (`.github/workflows/ci.yml`) runs the backend suite on PostgreSQL and the frontend lint and build on every push that touches `Aurora/`.
+GitHub Actions (`.github/workflows/ci.yml`) runs the backend suite on PostgreSQL and the frontend lint and build on every push that touches `Aurora/`. The suite sets its own `DATABASE_URL` from `TEST_DATABASE_URL` before the app is imported, so the workflow only needs the latter.
 
 ## Deploying
 
@@ -297,7 +297,7 @@ Worth knowing before you rely on it:
 - **Free-tier Groq limits** cap how many learners can practise at once (see above).
 - **Single process.** Rate limits are in memory; see Deploying.
 - **Browsers.** Recording has been exercised in Chrome. Firefox and Safari recording, and the light theme on every page, haven't been tested.
-- **Not exercised against the real services:** the Google sign-in success path (a human has to click through consent), real Resend email delivery and real Cloudinary uploads were tested with fakes and validation only. `local_client.py` wasn't re-run after the authentication changes. The GitHub Actions workflow hasn't been run on GitHub.
+- **Not exercised against the real services:** the Google sign-in success path (a human has to click through consent), real Resend email delivery and real Cloudinary uploads were tested with fakes and validation only. `local_client.py` wasn't re-run after the authentication changes. The GitHub Actions workflow's first run failed because the suite quietly depended on the voice files being installed; that is fixed and was checked in a CI-like copy of the project (no voices, no `.env`), but the fixed workflow hasn't been re-run on GitHub yet.
 - **Not built:** PDF export of a report, and WebSocket streaming (streaming over HTTP meets the latency target).
 - Sessions from before speech metrics existed have no fluency or clarity data, and are shown as not analysed rather than scored.
 

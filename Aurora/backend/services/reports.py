@@ -8,12 +8,17 @@ short personal note at the top, and a failure there just leaves the note out.
 
 Reports are generated in the background when a session ends, but a learner can
 open the report page at any moment — so `generate_report` is safe to call from
-anywhere, any number of times: there is one report per session (a unique key),
-and whoever loses the race simply reads the winner's.
+anywhere, any number of times: there is one report per session. Calls for the same
+session take turns inside the process (the second one finds the first one's report
+instead of paying for a second LLM note), and a unique key is the net underneath for
+anything that slips past, such as another worker process: whoever loses that race
+simply reads the winner's report.
 """
 import json
 import logging
+import threading
 import time
+from contextlib import contextmanager
 
 from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
@@ -36,6 +41,28 @@ WAIT_FOR_ANALYSIS_SECONDS = 25.0
 _POLL_SECONDS = 0.5
 
 _LABELS = {(c, s): info["label"] for c, subs in taxonomy.SUBTYPES.items() for s, info in subs.items()}
+
+_guard = threading.Lock()
+_in_progress: dict[str, list] = {}      # conversation id -> [lock, how many callers hold or wait for it]
+
+
+@contextmanager
+def _one_at_a_time(conversation_id: str):
+    """
+    Callers for the same session take turns; different sessions don't wait for each other. The entry is
+    forgotten once nobody holds or waits for it, so the table can't grow without bound.
+    """
+    with _guard:
+        entry = _in_progress.setdefault(conversation_id, [threading.Lock(), 0])
+        entry[1] += 1
+    try:
+        with entry[0]:
+            yield
+    finally:
+        with _guard:
+            entry[1] -= 1
+            if entry[1] == 0:
+                del _in_progress[conversation_id]
 
 
 def _correction_dict(c: Correction) -> dict:
@@ -145,7 +172,9 @@ def generate_report(
     if wait_seconds > 0:
         wait_for_analysis(conversation_id, wait_seconds)
 
-    with SessionLocal() as db:
+    # The end-of-session task and a learner opening the page can arrive together: whoever comes second waits
+    # here, then finds the first one's report below, rather than writing the LLM note a second time.
+    with _one_at_a_time(conversation_id), SessionLocal() as db:
         existing = get_report(db, conversation_id)
         if existing:
             return report_to_dict(existing)

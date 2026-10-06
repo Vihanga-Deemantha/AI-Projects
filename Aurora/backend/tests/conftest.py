@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -134,6 +135,71 @@ def db():
         yield session
 
 
+# ── A voices folder that exists on every machine ──────────────────────────────
+# The suite must not need model files: a CI runner or a fresh clone has none, and the real ones are ~580 MB.
+# So every test sees a stand-in voices folder (an empty placeholder per model, beside a config that lists the
+# multi-speaker model's speakers). The real availability logic (tts.voice_available, style_problem, status)
+# runs against it unchanged, and "loading" a model returns a stub, so nothing here touches Piper's models.
+# Tests of the genuine models are marked `real_voices`: they use the real folder and skip where it's empty.
+
+SPEAKER_IDS = {s: i for i, s in enumerate(sorted({
+    spec["speaker"] for by_companion in ACCENT_VOICES.values() for spec in by_companion.values() if spec["speaker"]
+}))}
+
+
+class StubVoice:
+    """What tts._load_model returns in tests: it knows its speakers and writes a short silence."""
+
+    def __init__(self, speakers: dict):
+        self.config = SimpleNamespace(speaker_id_map=speakers)
+
+    def synthesize_wav(self, text, wav_file, syn_config=None):
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(22050)
+        wav_file.writeframes(b"\x00\x00" * 2205)
+
+
+@pytest.fixture(scope="session")
+def _stand_in_voices_dir(tmp_path_factory) -> Path:
+    folder = tmp_path_factory.mktemp("voices")
+    for filename in tts.ALL_MODEL_FILES:
+        config = {"speaker_id_map": SPEAKER_IDS} if "vctk" in filename else {}
+        (folder / filename).write_bytes(b"")
+        (folder / (filename + ".json")).write_text(json.dumps(config))
+    return folder
+
+
+@pytest.fixture(autouse=True)
+def _stand_in_voices(request, monkeypatch, _stand_in_voices_dir):
+    if request.node.get_closest_marker("real_voices"):
+        yield
+        return
+    monkeypatch.setattr(tts, "VOICES_DIR", str(_stand_in_voices_dir))
+    monkeypatch.setattr(tts, "_load_model", lambda filename, label: StubVoice(SPEAKER_IDS if "vctk" in filename else {}))
+    tts._speaker_names.cache_clear()
+    yield
+    tts._speaker_names.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_real_llm(monkeypatch):
+    """
+    The suite needs no network. A test that reaches the Groq client without the `ai` fixture (which fakes the LLM)
+    would send a real request with the dummy key, so it fails instead; code that swallows the error, like the
+    report's optional note, can't hide it.
+    """
+    reached = []
+
+    def refuse():
+        reached.append(1)
+        raise RuntimeError("a test reached the real LLM: give it the `ai` fixture")
+
+    monkeypatch.setattr(llm, "get_client", refuse)
+    yield
+    assert not reached, "this test reached the real LLM (use the `ai` fixture, which fakes it)"
+
+
 # ── Fakes for everything that would touch the network or a model file ─────────
 
 class FakeAI:
@@ -240,13 +306,6 @@ def ai(monkeypatch) -> FakeAI:
     monkeypatch.setattr(tts, "synthesize_text", fake.synthesize_text)
     monkeypatch.setattr(tts, "synthesize", fake.synthesize)
     tts.word_audio.cache_clear()
-    monkeypatch.setattr(tts, "voice_available", lambda voice_id: True)
-    # No model files in tests: pretend every model is installed, so whether a companion can speak a style
-    # depends only on the accent table (personalities.ACCENT_VOICES). The real availability logic still runs.
-    monkeypatch.setattr(tts, "_model_installed", lambda filename: True)
-    monkeypatch.setattr(tts, "_speaker_names", lambda filename: frozenset(
-        spec["speaker"] for by_companion in ACCENT_VOICES.values() for spec in by_companion.values() if spec["speaker"]
-    ))
     return fake
 
 

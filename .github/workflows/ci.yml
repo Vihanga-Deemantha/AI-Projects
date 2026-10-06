@@ -1,7 +1,9 @@
 name: CI
 
 # Runs on every push and pull request that touches Aurora/.
-#   backend  — the pytest suite on a real Postgres (all AI/email services are faked, no secrets needed)
+#   backend  — the pytest suite on a real Postgres. It needs no secrets, no network and no model
+#              files: the AI and email services are faked and the voices are a stand-in folder
+#              (backend/tests/conftest.py). The few tests of the genuine Piper models skip here.
 #   frontend — lint + a production build
 # The Playwright smoke test (frontend/e2e) is intentionally NOT run here: it needs the
 # whole stack, real model files and a Groq key. Run it locally with `npm run e2e`.
@@ -30,8 +32,10 @@ jobs:
           POSTGRES_PASSWORD: aura_dev_pass
           POSTGRES_DB: postgres
         ports: ["5432:5432"]
+        # -d postgres: without it pg_isready probes a database named after the user ("aura"), which
+        # doesn't exist, so the server logs `FATAL: database "aura" does not exist` on every check.
         options: >-
-          --health-cmd "pg_isready -U aura"
+          --health-cmd "pg_isready -U aura -d postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
