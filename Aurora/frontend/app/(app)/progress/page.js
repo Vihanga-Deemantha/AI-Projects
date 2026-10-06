@@ -2,33 +2,22 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import AuthGuard from "@/components/AuthGuard";
-import AppSidebar from "@/components/AppSidebar";
 import LineChart from "@/components/LineChart";
 import { getProgress, getWeaknesses } from "@/lib/api";
+import { formatDay, formatHours, formatMinutes, shortDate } from "@/lib/format";
 
-// Overall uses the brand colour; the rest are distinct mid-tones that read on both themes.
+// Overall uses the brand colour; the rest are distinct hues defined per theme in globals.css (--series-*), each
+// dark enough on the light panel and light enough on the dark one to be told from the background.
 const SERIES = [
   { key: "overall", label: "Overall", color: "var(--brand)", bold: true },
-  { key: "grammar", label: "Grammar", color: "#d9774f" },
-  { key: "vocabulary", label: "Vocabulary", color: "#4fa68b" },
-  { key: "fluency", label: "Fluency", color: "#b08ad8" },
-  { key: "clarity", label: "Clarity", color: "#d4a017" },
-  { key: "naturalness", label: "Naturalness", color: "#e0607e" },
+  { key: "grammar", label: "Grammar", color: "var(--series-grammar)" },
+  { key: "vocabulary", label: "Vocabulary", color: "var(--series-vocabulary)" },
+  { key: "fluency", label: "Fluency", color: "var(--series-fluency)" },
+  { key: "clarity", label: "Clarity", color: "var(--series-clarity)" },
+  { key: "naturalness", label: "Naturalness", color: "var(--series-naturalness)" },
 ];
 
-export default function ProgressPage() {
-  return (
-    <AuthGuard>
-      <div className="flex min-h-screen flex-1 flex-col lg:flex-row">
-        <AppSidebar />
-        <Progress />
-      </div>
-    </AuthGuard>
-  );
-}
-
-function Progress() {
+export default function Progress() {
   const [data, setData] = useState(null);
   const [weak, setWeak] = useState([]);
   const [status, setStatus] = useState("loading"); // loading | ready | error
@@ -118,7 +107,7 @@ function Dashboard({ data, weaknesses }) {
               <span key={i} className={`h-2.5 w-full ${on ? "bg-brand" : "bg-field"}`} />
             ))}
           </div>
-          <div className="mt-1.5 text-[9.5px] font-bold tracking-[0.16em] text-soft uppercase">
+          <div className="mt-1.5 text-[10px] font-bold tracking-[0.16em] text-soft uppercase">
             Streak{streak.longest > streak.current ? ` · best ${streak.longest}` : ""}
           </div>
         </div>
@@ -135,7 +124,7 @@ function Dashboard({ data, weaknesses }) {
                 type="button"
                 onClick={() => toggle(s.key)}
                 aria-pressed={on}
-                className={`flex cursor-pointer items-center gap-2 border px-3 py-1.5 text-[11.5px] font-bold transition ${
+                className={`flex cursor-pointer items-center gap-2 border px-3 py-1.5 text-xs font-bold transition ${
                   on ? "border-foreground" : "border-panel-border text-mute hover:border-brand"
                 }`}
               >
@@ -239,26 +228,8 @@ function Stat({ value, label }) {
   return (
     <div className="-mr-px -mb-px flex-[1_1_130px] border border-panel-border bg-panel p-4.5">
       <div className="font-display text-[26px] leading-none">{value}</div>
-      <div className="mt-1.5 text-[9.5px] font-bold tracking-[0.16em] text-soft uppercase">{label}</div>
+      <div className="mt-1.5 text-[10px] font-bold tracking-[0.16em] text-soft uppercase">{label}</div>
     </div>
   );
 }
 
-function shortDate(iso) {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
-function formatDay(iso) {
-  return new Date(iso).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
-}
-
-function formatHours(seconds) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.round((seconds % 3600) / 60);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
-
-function formatMinutes(seconds) {
-  const m = Math.max(1, Math.round(seconds / 60));
-  return `${m} min`;
-}

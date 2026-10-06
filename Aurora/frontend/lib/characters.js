@@ -11,53 +11,59 @@ import { withArticle } from "@/lib/accents";
 // Sprites live on a shared 700x680 canvas, feet pinned to the bottom edge.
 export const SPRITE_ASPECT = 700 / 680;
 
-// `tag` is one playful word for the companion's vibe, shown next to their name. It is deliberately NOT
-// the accent, because the accent follows the speaking style (American / British / Scottish / ...): a style
-// sets the coach's words AND the accent, and the companion adopts it. `accent` is the accent of the
-// companion's OWN voice (its Piper model's locale: en_US or en_GB), what they sound like under Standard
-// English; it appears in a hover tooltip (see companionHint) rather than on the card.
+// What the six companions really differ in is their NAME, FACE and VOICE: the coach's conversation prompt is the
+// same for all of them (it varies by scenario, speaking style, difficulty and practice focus, never by companion).
+// So everything written here describes the voice, in the words of backend/personalities.py VOICES `desc`, and never
+// promises a way of conversing. Keep it that way: a line that says a companion "changes subject often" or "notices
+// register slips" would be false until the prompt actually does it.
+//
+// `tag` is one playful word for the voice's vibe, shown next to the name. It is deliberately NOT the accent,
+// because the accent follows the speaking style (American / British / Scottish / ...): a style sets the coach's
+// words AND the accent, and the companion adopts it. `accent` is the accent of the companion's OWN voice (its Piper
+// model's locale: en_US or en_GB), what they sound like under Standard English; it appears in a hover tooltip (see
+// companionHint) rather than on the card.
 export const CAST = [
   {
     id: "eida", name: "Eida", tag: "Zen", accent: "American",
-    tagline: "The one who lets the silence sit.",
-    blurb: "Eida speaks slowly and leaves the pauses alone. She will not talk over you and she will not fill a gap you are still thinking in.",
-    traits: ["Gentle pace", "Long pauses", "Calm voice", "American by default"],
-    line: "Eida is waiting. She never rushes you.",
+    tagline: "A calm, unhurried voice.",
+    blurb: "Eida speaks with a calm, unhurried voice. Choose her when you would like to listen without feeling rushed.",
+    traits: ["Calm", "Unhurried", "American by default"],
+    line: "Eida is ready when you are.",
   },
   {
     id: "maya", name: "Maya", tag: "Bubbly", accent: "American",
-    tagline: "The one who keeps it moving.",
-    blurb: "Maya is cheerful, quick and slightly relentless. She reacts out loud to everything you say and changes subject twice a minute.",
-    traits: ["Fast turns", "High energy", "Upbeat voice", "American by default"],
-    line: "Maya is waiting. She talks fast and laughs faster.",
+    tagline: "An upbeat, energetic voice.",
+    blurb: "Maya speaks with an upbeat, energetic voice. Choose her when you want the conversation to feel bright.",
+    traits: ["Upbeat", "Energetic", "American by default"],
+    line: "Maya is ready when you are.",
   },
   {
     id: "amy", name: "Amy", tag: "Sunny", accent: "American",
-    tagline: "The easiest voice to follow at full speed.",
-    blurb: "Friendly American English, clean consonants, nothing showy. The voice most learners can follow without asking for a repeat.",
-    traits: ["Friendly", "Clear diction", "American by default"],
-    line: "Amy is waiting. The clearest voice of the six.",
+    tagline: "A friendly voice.",
+    blurb: "Amy is the default companion: a friendly voice with an American accent under Standard English.",
+    traits: ["Friendly", "Default companion", "American by default"],
+    line: "Amy is ready when you are.",
   },
   {
     id: "ryan", name: "Ryan", tag: "Cozy", accent: "American",
-    tagline: "The one who goes deeper instead of wider.",
-    blurb: "The lowest, warmest register of the six. He asks follow-up questions rather than new ones, so conversations stay on one subject.",
-    traits: ["Warm tone", "Deep follow-ups", "American by default"],
-    line: "Ryan is waiting. He asks the second question.",
+    tagline: "A warm voice.",
+    blurb: "Ryan speaks with a warm voice and an American accent under Standard English.",
+    traits: ["Warm", "American by default"],
+    line: "Ryan is ready when you are.",
   },
   {
     id: "alan", name: "Alan", tag: "Stickler", accent: "British",
-    tagline: "The one to practise with before it matters.",
-    blurb: "British English, measured, exacting about tense and register. He notices when you slip from formal into casual mid-sentence.",
-    traits: ["Formal register", "Exacting", "British by default"],
-    line: "Alan is waiting. Mind your tenses.",
+    tagline: "A measured voice.",
+    blurb: "Alan speaks with a measured voice and a British accent under Standard English. He is the one to choose when you want to hear British English.",
+    traits: ["Measured", "British by default"],
+    line: "Alan is ready when you are.",
   },
   {
     id: "lessac", name: "Lessac", tag: "Dramatic", accent: "American",
-    tagline: "The one who shows you where the stress lands.",
-    blurb: "Lessac speaks the way people speak when they are being listened to. Wide intonation and deliberate emphasis make him the best of the six for hearing which word in a sentence is carrying it.",
-    traits: ["Expressive", "Wide range", "American by default"],
-    line: "Lessac is waiting. He will show you where the stress lands.",
+    tagline: "A deep, deliberate voice.",
+    blurb: "Lessac speaks with a deep, deliberate voice and an American accent under Standard English.",
+    traits: ["Deep", "Deliberate", "American by default"],
+    line: "Lessac is ready when you are.",
   },
 ];
 
@@ -73,9 +79,9 @@ export function isCompanion(id) {
 }
 
 /**
- * Hover text for a companion: the accent you will hear and what makes them different. Their own voice
+ * Hover text for a companion: the accent you will hear and what their voice is like. Their own voice
  * has a home accent, but the speaking style brings its own accent and the companion adopts it, e.g.
- * "Alan · will speak with a Scottish accent, to match your speaking style. The one to practise with ...".
+ * "Alan · will speak with a Scottish accent, to match your speaking style. A measured voice.".
  * `styleAccent` is the chosen style's accent ("Scottish"), or null for Standard English.
  */
 export function companionHint(companion, styleAccent = null) {
@@ -86,16 +92,17 @@ export function companionHint(companion, styleAccent = null) {
   return `${sound} ${companion.tagline}`;
 }
 
-// Marketing copy for the landing page's scenarios chapter. Keys match the
-// backend scenario ids.
+// Scene-setting copy for the landing page's scenarios chapter. Keys match the backend scenario ids. The `setting`
+// only describes what the scenario prompt (backend/personalities.py SCENARIOS) really asks the coach to do, and the
+// `line` is an EXAMPLE of how a coach might speak in it (the page labels it so): the real coach answers after you.
 export const SCENES = [
   { key: "casual", label: "Casual chat", setting: "A slow afternoon, nothing at stake. The conversation wanders wherever you take it.", skills: ["Small talk", "Opinions", "Everyday tense"], line: "So — how has your week actually been? Give me the honest version." },
-  { key: "interview", label: "Job interview", setting: "A quiet room and a desk. Questions start easy and get harder, and nothing is rephrased for you.", skills: ["Formal register", "Structured answers", "Experience"], line: "Thanks for coming in. Tell me about a piece of work you are proud of." },
-  { key: "travel", label: "Travel / airport", setting: "A departures hall, a hotel desk, a stranger who knows the way. Real consequences if you are not understood.", skills: ["Requests", "Directions", "Numbers"], line: "Good evening — do you have a reservation with us tonight?" },
+  { key: "interview", label: "Job interview", setting: "A quiet room and a desk. Questions start easy and get harder as the interview goes on.", skills: ["Formal register", "Structured answers", "Experience"], line: "Thanks for coming in. Tell me about a piece of work you are proud of." },
+  { key: "travel", label: "Travel / airport", setting: "A departures hall, a hotel desk, a stranger who knows the way. The practical English a trip asks of you.", skills: ["Requests", "Directions", "Numbers"], line: "Good evening — do you have a reservation with us tonight?" },
   { key: "debate", label: "Debate", setting: "Opposite sides of a table. A position is taken, your argument is challenged, evidence is asked for.", skills: ["Argument", "Hedging", "Counter-points"], line: "I will argue remote work makes people worse at their jobs. Convince me otherwise." },
   { key: "seminar", label: "University seminar", setting: "Eight chairs in a circle and a reading nobody finished. You are expected to explain, not assert.", skills: ["Academic vocabulary", "Explaining", "Citing"], line: "Could you summarise the argument of the chapter in your own words?" },
-  { key: "cafe", label: "Café / ordering", setting: "A counter, a queue behind you, a menu you half understand. The fastest English there is.", skills: ["Ordering", "Polite requests", "Clarifying"], line: "Hi there, what can I get for you? We are out of the almond croissants." },
-  { key: "phone", label: "Phone call", setting: "No face, no gestures, slightly bad line. Everything is carried by words and tone alone.", skills: ["Listening", "Spelling aloud", "Confirming"], line: "Hello, thanks for holding — could I take your name and spell it back?" },
+  { key: "cafe", label: "Café / ordering", setting: "A counter, a queue behind you, a menu you half understand. Short, quick exchanges.", skills: ["Ordering", "Polite requests", "Clarifying"], line: "Hi there, what can I get for you? We are out of the almond croissants." },
+  { key: "phone", label: "Phone call", setting: "No face, no gestures, and now and then a request to repeat. Everything is carried by words and tone alone.", skills: ["Listening", "Spelling aloud", "Confirming"], line: "Hello, thanks for holding — could I take your name and spell it back?" },
 ];
 
 export const spriteSrc = (id, pose = "idle") => `/characters/sprites/${id}_${pose}.webp`;

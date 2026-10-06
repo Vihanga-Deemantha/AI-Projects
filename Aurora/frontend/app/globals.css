@@ -9,13 +9,20 @@
   --panel-border: #d6e6f2;
   --foreground: #0d0d0d;
   --soft: #2b2b2b;
-  --mute: #6b6b6b;
+  --mute: #636363;
   --field: #eaf2f9;
-  --brand: #40719e;
+  /* Deep enough to read as text on every light surface, the pale-blue --brand-soft included (4.7:1; was 4.0). */
+  --brand: #386691;
   --brand-dark: #2f5a82;
   --brand-soft: #d6e6f2;
   --on-brand: #ffffff;
   --card-shadow: 0 30px 80px rgba(13, 13, 13, 0.12);
+  /* The lines of the progress chart. Each is at least 3:1 against the white panel, which is what graphics need. */
+  --series-grammar: #cf6a40;
+  --series-vocabulary: #3a8f75;
+  --series-fluency: #9567c7;
+  --series-clarity: #a67c00;
+  --series-naturalness: #e0607e;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -33,6 +40,11 @@
     --brand-soft: #1a1a1a;
     --on-brand: #0d0d0d;
     --card-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+    --series-grammar: #d9774f;
+    --series-vocabulary: #4fa68b;
+    --series-fluency: #b08ad8;
+    --series-clarity: #d4a017;
+    --series-naturalness: #e0607e;
   }
 }
 
@@ -50,6 +62,11 @@
   --brand-soft: #1a1a1a;
   --on-brand: #0d0d0d;
   --card-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  --series-grammar: #d9774f;
+  --series-vocabulary: #4fa68b;
+  --series-fluency: #b08ad8;
+  --series-clarity: #d4a017;
+  --series-naturalness: #e0607e;
 }
 
 @theme inline {

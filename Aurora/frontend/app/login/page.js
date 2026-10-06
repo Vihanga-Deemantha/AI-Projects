@@ -3,7 +3,7 @@ import AuthForm from "@/components/AuthForm";
 import AuthShell from "@/components/AuthShell";
 import GuestGuard from "@/components/GuestGuard";
 
-export const metadata = { title: "Sign in — AURA" };
+export const metadata = { title: "Sign in" };
 
 export default function LoginPage() {
   return (

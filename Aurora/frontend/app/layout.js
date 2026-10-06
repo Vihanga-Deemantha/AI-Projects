@@ -19,9 +19,26 @@ const plusJakartaSans = Plus_Jakarta_Sans({
   display: "swap",
 });
 
+const TITLE = "AURA — AI English Speaking Coach";
+const DESCRIPTION = "Practise real spoken English with six AI companions that give you grammar and vocabulary feedback after every turn.";
+
 export const metadata = {
-  title: "AURA — AI English Speaking Coach",
-  description: "Practise real spoken English with six AI companions that give you grammar and vocabulary feedback after every turn.",
+  // The address link previews are built from (NEXT_PUBLIC_SITE_URL once the app has one).
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
+  // Each section sets a short title ("Practice"); the template turns it into "Practice — AURA".
+  title: { default: TITLE, template: "%s — AURA" },
+  description: DESCRIPTION,
+  // The preview image comes from app/opengraph-image.js.
+  openGraph: { title: TITLE, description: DESCRIPTION, siteName: "AURA", type: "website", locale: "en_US" },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION },
+};
+
+// Colours the browser's own chrome (the phone's address bar) to match the page.
+export const viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f2f7fb" },
+    { media: "(prefers-color-scheme: dark)", color: "#0d0d0d" },
+  ],
 };
 
 export default function RootLayout({ children }) {

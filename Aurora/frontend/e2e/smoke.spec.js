@@ -1,33 +1,5 @@
 import { expect, test } from "@playwright/test";
-
-const API = process.env.E2E_API_BASE || "http://localhost:8000";
-const PASSWORD = "e2e-test-password-1";
-
-/** Creates a fresh account through the sign-up form, skips email verification and lands on the practice page. */
-async function signUp(page) {
-  const email = `e2e_${Date.now()}@example.com`;
-  await page.goto("/signup");
-  await page.getByPlaceholder("Enter your email").fill(email);
-  await page.getByPlaceholder("At least 8 characters").fill(PASSWORD);
-  await page.getByRole("button", { name: "Create account" }).click();
-
-  // A verification code was emailed; confirming it is encouraged but optional.
-  await expect(page).toHaveURL(/\/verify-email/);
-  await expect(page.getByRole("heading", { name: "Check your inbox" })).toBeVisible();
-  await page.getByRole("link", { name: "Skip for now" }).click();
-  await expect(page).toHaveURL(/\/practice/);
-  return email;
-}
-
-/** Deletes the signed-in account from the profile page, as a learner would. */
-async function deleteAccount(page, email) {
-  await page.goto("/profile");
-  await page.getByRole("button", { name: "Delete my account" }).click();
-  await page.getByPlaceholder(`Type ${email} to confirm`).fill(email);
-  await page.getByPlaceholder("Your password").fill(PASSWORD);
-  await page.getByRole("button", { name: "Permanently delete" }).click();
-  await expect(page).toHaveURL(/localhost:\d+\/?$|\/$/);
-}
+import { API, deleteAccount, PASSWORD, signUp } from "./helpers.js";
 
 /**
  * One journey through everything a learner does: sign up, hold the mic and
@@ -64,6 +36,8 @@ test("a learner can sign up, practise, review their history and delete their acc
   await expect(page.getByText(/^\d+ wpm$/).first()).toBeVisible();
   await expect(page.getByText(/^\d+ pauses?$/).first()).toBeVisible();
   await expect(page.getByText(/^Clarity \d+\*?$/).first()).toBeVisible();
+  // What Clarity is, and what a "*" means, is written under the conversation (a tooltip never shows on a phone).
+  await expect(page.getByText("Clarity is an estimate from speech-recognition confidence, not pronunciation scoring.")).toBeVisible();
 
   // Corrections arrive on their own — the session has NOT been ended.
   await expect(page.getByText(/^[1-9]\d* this session$/i)).toBeVisible();
@@ -81,6 +55,8 @@ test("a learner can sign up, practise, review their history and delete their acc
   for (const dimension of ["Grammar", "Vocabulary", "Fluency", "Clarity", "Naturalness"]) {
     await expect(page.getByRole("progressbar", { name: dimension })).toBeVisible();
   }
+  // What each score measures is written on the page, clarity's caveat included, not only in a tooltip.
+  await expect(page.getByText(/an estimate, not pronunciation scoring/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "What went well" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Work on next" })).toBeVisible();
 
@@ -89,7 +65,8 @@ test("a learner can sign up, practise, review their history and delete their acc
   await expect(page.getByText("Casual chat · Standard")).toBeVisible();
   await expect(page.getByText(/with .* · Elementary level/)).toBeVisible();
   await page.getByText("Casual chat · Standard").click();
-  await expect(page.getByText("Transcript")).toBeVisible();
+  // (exact: Next's route announcer, outside the page, now says the page's title, "Session transcript")
+  await expect(page.getByText("Transcript", { exact: true })).toBeVisible();
   await expect(page.getByText(/to the mall/i).first()).toBeVisible();
 
   // ── Difficulty: pin a level on the profile, and the practice page reflects it ─

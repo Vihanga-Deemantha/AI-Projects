@@ -100,7 +100,7 @@ export default function LineChart({ labels, series }) {
 
       {hover != null && (
         <div
-          className="pointer-events-none absolute top-2 border border-panel-border bg-panel px-3 py-2 text-[11px] shadow-md"
+          className="pointer-events-none absolute top-2 border border-panel-border bg-panel px-3 py-2 text-xs shadow-md"
           style={{ left: `${Math.min(78, Math.max(2, (x(hover) / W) * 100 - 8))}%` }}
         >
           <div className="mb-1 font-bold">{labels[hover]}</div>

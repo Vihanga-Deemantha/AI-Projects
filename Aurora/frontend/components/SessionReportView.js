@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getSessionReport } from "@/lib/api";
 import { faceSrc, getCompanion, sceneLabel, styleLabel } from "@/lib/characters";
+import { formatDuration } from "@/lib/format";
 import { playWord } from "@/lib/wordAudio";
 
 const POLL_MS = 2000;
@@ -116,7 +117,7 @@ function Report({ report, session }) {
         <h2 className="font-display text-xl font-bold">Scores</h2>
         <div className="mt-4.5 flex flex-col gap-4">
           {DIMENSIONS.map((d) => (
-            <ScoreBar key={d.key} label={d.label} value={scores[d.key]} hint={d.hint} />
+            <ScoreBar key={d.key} id={d.key} label={d.label} value={scores[d.key]} hint={d.hint} />
           ))}
         </div>
       </section>
@@ -151,7 +152,7 @@ function Report({ report, session }) {
       <div className="flex flex-wrap">
         <Fact value={facts.turns} label="Turns" />
         <Fact value={facts.words} label="Words spoken" />
-        <Fact value={formatSeconds(facts.duration_seconds)} label="Length" />
+        <Fact value={formatDuration(facts.duration_seconds)} label="Length" />
         {facts.avg_wpm != null && <Fact value={Math.round(facts.avg_wpm)} label="Words / min" />}
         <Fact value={facts.praise} label="Praised" />
       </div>
@@ -191,23 +192,33 @@ function ScoreRing({ value }) {
       </svg>
       <div className="absolute text-center">
         <div className="font-display text-[44px] leading-none font-bold">{value ?? "—"}</div>
-        <div className="mt-1 text-[9px] font-bold tracking-[0.18em] text-soft uppercase">Overall</div>
+        <div className="mt-1 text-[10px] font-bold tracking-[0.18em] text-soft uppercase">Overall</div>
       </div>
     </div>
   );
 }
 
-function ScoreBar({ label, value, hint }) {
+/** One score with its bar. What the score measures is written under the label, not hidden in a tooltip. */
+function ScoreBar({ id, label, value, hint }) {
   return (
-    <div title={hint}>
+    <div>
       <div className="flex items-baseline justify-between text-[12.5px]">
         <span className="font-bold">{label}</span>
         <span className={value == null ? "text-mute" : "font-display text-base font-bold"}>
           {value == null ? "Not enough data" : value}
         </span>
       </div>
-      <div className="mt-1.75 h-1.75 bg-field" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={value ?? 0} aria-label={label}>
-        <div className="h-full bg-brand transition-[width] duration-700" style={{ width: `${value ?? 0}%` }} />
+      <p id={`score-hint-${id}`} className="mt-0.5 text-xs leading-snug text-mute">{hint}</p>
+      <div
+        className="mt-1.75 h-1.75 bg-field"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={value ?? 0}
+        aria-label={label}
+        aria-describedby={`score-hint-${id}`}
+      >
+        <div className="h-full bg-brand transition-[width] duration-700 motion-reduce:transition-none" style={{ width: `${value ?? 0}%` }} />
       </div>
     </div>
   );
@@ -263,7 +274,7 @@ function PracticeWords({ words, voice, style }) {
                 type="button"
                 onClick={() => hear(w, slow)}
                 aria-label={slow ? `Hear "${w}" slowly` : `Hear "${w}"`}
-                className={`cursor-pointer border px-1.5 py-0.5 text-[9.5px] font-bold tracking-[0.1em] uppercase transition ${
+                className={`cursor-pointer border px-1.5 py-0.5 text-[10px] font-bold tracking-[0.1em] uppercase transition ${
                   playing === `${w}:${slow}` ? "border-brand bg-brand text-on-brand" : "border-panel-border text-soft hover:border-brand hover:text-brand"
                 }`}
               >
@@ -282,14 +293,7 @@ function Fact({ value, label }) {
   return (
     <div className="-mr-px -mb-px flex-[1_1_110px] border border-panel-border bg-panel p-4.5">
       <div className="font-display text-[26px] leading-none">{value ?? "—"}</div>
-      <div className="mt-1.5 text-[9.5px] font-bold tracking-[0.16em] text-soft uppercase">{label}</div>
+      <div className="mt-1.5 text-[10px] font-bold tracking-[0.16em] text-soft uppercase">{label}</div>
     </div>
   );
-}
-
-function formatSeconds(seconds) {
-  if (seconds == null) return "—";
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }

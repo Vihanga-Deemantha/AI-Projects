@@ -2,25 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import AuthGuard from "@/components/AuthGuard";
-import AppSidebar from "@/components/AppSidebar";
 import { getSessions } from "@/lib/api";
 import { faceSrc, getCompanion, sceneLabel, styleLabel } from "@/lib/characters";
+import { formatDate, formatDuration } from "@/lib/format";
 
 const PAGE_SIZE = 20;
 
-export default function HistoryPage() {
-  return (
-    <AuthGuard>
-      <div className="flex min-h-screen flex-1 flex-col lg:flex-row">
-        <AppSidebar />
-        <SessionList />
-      </div>
-    </AuthGuard>
-  );
-}
-
-function SessionList() {
+export default function SessionList() {
   const [data, setData] = useState(null);
   const [offset, setOffset] = useState(0);
   const [status, setStatus] = useState("loading"); // loading | ready | error
@@ -158,7 +146,7 @@ function StatCard({ value, label }) {
   return (
     <div className="-mr-px -mb-px flex-[1_1_150px] border border-panel-border bg-panel p-5">
       <div className="font-display text-[32px] leading-none">{value}</div>
-      <div className="mt-2 text-[9.5px] font-bold tracking-[0.16em] text-soft uppercase">{label}</div>
+      <div className="mt-2 text-[10px] font-bold tracking-[0.16em] text-soft uppercase">{label}</div>
     </div>
   );
 }
@@ -167,20 +155,7 @@ function Figure({ value, label, accent, className = "" }) {
   return (
     <div className={`text-center ${className}`}>
       <div className={`font-display text-lg font-bold ${accent ? "text-brand" : ""}`}>{value}</div>
-      <div className="mt-0.75 text-[9px] font-bold tracking-[0.14em] text-mute uppercase">{label}</div>
+      <div className="mt-0.75 text-[10px] font-bold tracking-[0.14em] text-mute uppercase">{label}</div>
     </div>
   );
-}
-
-export function formatDate(iso) {
-  return new Date(iso).toLocaleString([], {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-  });
-}
-
-export function formatDuration(seconds) {
-  if (seconds == null) return "—";
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }

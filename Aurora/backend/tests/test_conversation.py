@@ -1,5 +1,6 @@
 """Starting/ending sessions and the streaming voice loop."""
 import threading
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -54,6 +55,52 @@ def test_end_is_idempotent_and_owned(client, user, make_user, start_session):
 
     other = make_user("other@example.com")
     assert client.post(f"/api/conversation/{cid}/end", headers=other["headers"]).status_code == 404
+
+
+def _open_session(user_id: str, *, started_minutes_ago: int, last_message_minutes_ago: int | None) -> tuple[str, datetime, datetime]:
+    """
+    An unfinished session built straight in the DB: it started `started_minutes_ago` ago and its last message
+    is `last_message_minutes_ago` old (None = nothing was ever said). Returns (id, started_at, last_activity).
+    """
+    now = datetime.now(timezone.utc)
+    started = now - timedelta(minutes=started_minutes_ago)
+    last = started if last_message_minutes_ago is None else now - timedelta(minutes=last_message_minutes_ago)
+    with SessionLocal() as s:
+        c = Conversation(user_id=user_id, started_at=started)
+        s.add(c)
+        s.flush()
+        if last_message_minutes_ago is not None:
+            s.add_all([
+                Message(conversation_id=c.id, role="user", content="Hello there", created_at=started + timedelta(seconds=5)),
+                Message(conversation_id=c.id, role="assistant", content="Hi! How are you?", created_at=last),
+            ])
+        s.commit()
+        return c.id, started, last
+
+
+def test_ending_soon_after_the_last_message_ends_now(client, user, ai):
+    cid, started, _ = _open_session(user["user"]["id"], started_minutes_ago=10, last_message_minutes_ago=2)
+    ended = datetime.fromisoformat(client.post(f"/api/conversation/{cid}/end", headers=user["headers"]).json()["ended_at"])
+    assert abs((ended - datetime.now(timezone.utc)).total_seconds()) < 10
+
+
+def test_a_session_left_open_for_hours_ends_where_the_last_message_was(client, user, ai):
+    """Finishing an old session from History must not count the hours it sat idle as practice."""
+    cid, started, last = _open_session(user["user"]["id"], started_minutes_ago=300, last_message_minutes_ago=240)
+    body = client.post(f"/api/conversation/{cid}/end", headers=user["headers"]).json()
+    assert body["is_complete"] is True
+    assert datetime.fromisoformat(body["ended_at"]) == last
+
+    listed = client.get("/api/history/sessions", headers=user["headers"]).json()["sessions"][0]
+    assert listed["is_complete"] is True
+    assert listed["duration_seconds"] == round((last - started).total_seconds(), 1)   # about an hour, not five
+
+
+def test_a_session_nobody_spoke_in_that_is_ended_late_closes_at_its_start(client, user, ai):
+    cid, started, _ = _open_session(user["user"]["id"], started_minutes_ago=180, last_message_minutes_ago=None)
+    body = client.post(f"/api/conversation/{cid}/end", headers=user["headers"]).json()
+    assert datetime.fromisoformat(body["ended_at"]) == started
+    assert client.get("/api/history/sessions", headers=user["headers"]).json()["sessions"][0]["duration_seconds"] == 0.0
 
 
 # ── The voice loop ────────────────────────────────────────────────────────────

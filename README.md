@@ -173,7 +173,7 @@ Operators who care where their data goes can run speech recognition **on their o
 
 | Area | What you can do | Details |
 |---|---|---|
-| **Voice conversation** | Hold to talk, hear the coach reply sentence by sentence, pause and resume its voice | [The practice screen](#the-practice-screen) |
+| **Voice conversation** | Hold to talk (or tap to talk, or hold Space), hear the coach reply sentence by sentence, pause and resume its voice | [The practice screen](#the-practice-screen) |
 | **Companions** | Choose one of six companions, each with a voice and a face | [Companions](#companions) |
 | **Speaking styles and accents** | Seven English varieties; the coach's words and its accent both follow the style | [Speaking styles and accents](#speaking-styles-and-accents) |
 | **Scenarios** | Casual chat, job interview, travel, debate, university seminar, café, phone call | [Scenarios](#scenarios) |
@@ -209,10 +209,10 @@ Operators who care where their data goes can run speech recognition **on their o
 The public home page (`/`) is a six-chapter scrolling introduction:
 
 1. **Meet AURA**: a rotating cast of companions in different poses.
-2. **Meet the characters**: a roster you can step through, with each companion's name, one-word vibe, tagline, traits and a "Practise with ..." button.
-3. **Enter different scenarios**: all seven scenarios, each with its setting, the skills it exercises and an opening line.
-4. **Practise English**: a sample conversation with corrections, showing what a session looks like.
-5. **Track your improvement**: a sample dashboard (labelled as sample data).
+2. **Meet the characters**: a roster you can step through, with each companion's name, one-word vibe, a short description of their voice and a "Practise with ..." button. A line under it says that all six coach the same way and differ in voice, face and name.
+3. **Enter different scenarios**: all seven scenarios, each with its setting, the skills it exercises and an example of a line the coach might say (labelled as an example: the real coach answers after you speak).
+4. **Practise English**: a sample session with corrections, labelled as written for the page rather than recorded, and in the order a real session goes: you speak first.
+5. **Track your improvement**: a sample of the real Progress screen (the same four figures and the same weekly score chart) with made-up numbers, labelled as sample data. A sample must not show anything the real screen does not have; `e2e/public.spec.js` checks that.
 6. **Start speaking**: the call to action.
 
 The header shows *Log in* and *Start speaking*, or *Go to practice* when you are signed in. Characters lean gently towards the pointer; this switches off when your system asks for reduced motion. The footer states plainly what speaking styles do and do not cover.
@@ -238,35 +238,37 @@ The practice screen (`/practice`) is where everything happens. A status chip in 
 **Left column, the stage and the controls**
 
 - **The stage.** The selected companion stands in a tinted panel and changes pose with the conversation: listening while you hold the mic, thinking while a reply is written, talking (the mouth alternates between two poses) while the reply plays, idle otherwise. Under it, a live waveform reacts to your microphone or to the coach's voice.
-- **Hold to speak.** Press and hold the bar (mouse, touch or pen) and release to send. A live timer runs while you record. Recordings shorter than 0.4 seconds are rejected on the spot with a friendly message, and a recording stops by itself at 60 seconds. Microphone problems (permission denied, no device) get a plain-language explanation.
-- **Latency badge.** After each turn it shows the server's own timings: speech to text, the language model's first sentence, **first audio** (the number you actually wait for) and total.
+- **The talk button.** Two ways to use it, and neither needs a mouse. *Hold* (the default): hold the bar (mouse, touch or pen, or Space or Enter while it is focused) and release to send. *Tap*: tap to start and tap again to send, for anyone who cannot comfortably hold a button down for a whole sentence; a link under the button switches between the two, and the choice is remembered in your browser. A live timer runs while you record. Recordings shorter than 0.4 seconds are rejected on the spot with a friendly message, and a recording stops by itself at 60 seconds. Microphone problems (permission denied, no device, a page that is not served over https, a browser that cannot record) each get a plain-language explanation.
+- **Latency badge.** After each turn it shows **first audio**, the number you actually wait for, with a *Details* link for the server's own timings: speech to text, the language model's first sentence, and the whole turn.
 - **Session stats.** Turns, elapsed time, corrections so far, and your average fluency and clarity for this session.
 - **Today's practice.** Your weakest live habit with a one-click "Practise this" (see [Weak spots and daily practice](#weak-spots-and-daily-practice)).
-- **Session setup.** Companion, speaking style, scenario, and the difficulty the session will run at, with an example question and the reason ("Based on your last 3 session scores: 82, 78, 70."). The choices are dimmed and locked while a session is live and unlock when it ends. Companions and styles that cannot go together are dimmed with a hover explanation (see [Speaking styles and accents](#speaking-styles-and-accents)). Your companion and style are saved to your profile as soon as you pick them.
+- **Session setup.** Companion, speaking style, scenario, and the difficulty the session will run at, with an example question and the reason ("Based on your last 3 session scores: 82, 78, 70."). The choices are dimmed and locked while a session is live and unlock when it ends. Companions and styles that cannot go together are dimmed, and the reason is written under the chips ("Amy doesn't have an Australian voice yet. Ryan and Alan do.") as well as in a hover tooltip; a dimmed chip can still be focused with Tab, so a screen reader can read why (see [Speaking styles and accents](#speaking-styles-and-accents)). Your companion and style are saved to your profile as soon as you pick them.
 
 **Right column, the conversation and the feedback**
 
-- **Conversation.** Chat bubbles with each speaker's face (yours is your profile photo or initial). Under each of your bubbles are the speech chips, and, when the recogniser was unsure of some words, a "Hard to catch" list with *hear* and *slow* buttons. While the coach is writing its reply you see animated "thinking" dots.
+- **Conversation.** Chat bubbles with each speaker's face (yours is your profile photo or initial). Under each of your bubbles are the speech chips, and, when the recogniser was unsure of some words, a "Hard to catch" list with *hear* and *slow* buttons. While the coach is writing its reply you see animated "thinking" dots. Beneath the conversation, once, are the footnotes for those chips: that Clarity is an estimate from speech-recognition confidence rather than pronunciation scoring, and what a `*` means (a rough clarity score, or a filler count that cannot see "um" and "uh").
 - **Corrections panel.** Feedback for the session, newest first, with an "Analysing..." indicator while the analysis of your latest turn is still running (it polls every 1.5 seconds, for at most 30 seconds). The header counts fixes and praise separately ("3 this session · 1 nice").
 
-**Ending a session** closes it on the server (so it gets a duration in your history), stops the timer, and keeps the whole conversation on screen as a recap with a *Start new session* action. The recap only clears when you actually start another session. The report is generated in the background and the page looks again for new guidance a few seconds later.
+**Ending a session** closes it on the server (so it gets a duration in your history), stops the timer, and keeps the whole conversation on screen as a recap with a *Start new session* action. The recap only clears when you actually start another session. The report is generated in the background and the page looks again for new guidance a few seconds later. If you press *End session* while a reply is still arriving, the coach's voice stops at once; the rest of the reply still lands as text, so the transcript is complete.
+
+**Leaving without ending.** If you walk away from a live session (a link inside the app, a closed tab, another site), AURA stops the coach's voice and ends the session for you, so it still gets its score and report. If that request is lost (offline, a browser that drops requests while a tab closes), the session shows as *unfinished* in History, and its page there has a *Finish session* button. A session that has been quiet for more than 30 minutes when it is ended is closed at its **last message**, not at "now", so idle time is never counted as practice, never moves the session to another day for the streak, and never inflates the practice time on the Progress page.
 
 ### Companions
 
 Six companions, each with a name, a face, a voice and a one-word vibe. The vibe is deliberately *not* an accent, because the accent follows the speaking style (next section).
 
-| Companion | Vibe | Voice (Piper model) | Home accent | Tagline |
+| Companion | Vibe | Voice (Piper model) | Home accent | The voice, in a phrase |
 |---|---|---|---|---|
-| **Eida** | Zen | `en_US-kristin-medium` (female) | American | The one who lets the silence sit. |
-| **Maya** | Bubbly | `en_US-hfc_female-medium` (female) | American | The one who keeps it moving. |
-| **Amy** | Sunny | `en_US-amy-medium` (female) | American | The easiest voice to follow at full speed. |
-| **Ryan** | Cozy | `en_US-ryan-high` (male) | American | The one who goes deeper instead of wider. |
-| **Alan** | Stickler | `en_GB-alan-medium` (male) | British | The one to practise with before it matters. |
-| **Lessac** | Dramatic | `en_US-norman-medium` (male) | American | The one who shows you where the stress lands. |
+| **Eida** | Zen | `en_US-kristin-medium` (female) | American | A calm, unhurried voice. |
+| **Maya** | Bubbly | `en_US-hfc_female-medium` (female) | American | An upbeat, energetic voice. |
+| **Amy** | Sunny | `en_US-amy-medium` (female) | American | A friendly voice. |
+| **Ryan** | Cozy | `en_US-ryan-high` (male) | American | A warm voice. |
+| **Alan** | Stickler | `en_GB-alan-medium` (male) | British | A measured voice. |
+| **Lessac** | Dramatic | `en_US-norman-medium` (male) | American | A deep, deliberate voice. |
 
 Amy is the default. Hovering a companion shows their home accent and what they will sound like with the current speaking style. The companions' artwork (a set of poses, faces and scene illustrations) lives in `Aurora/frontend/public/characters` and is rebuilt from the source images by `scripts/build-characters.cjs`.
 
-> **Honest note.** Companions differ in **voice, face and name**. The coach's conversation prompt is the same for all six (it varies by scenario, style, difficulty and focus, not by companion), so the personality text on the landing page describes each character's feel rather than a different conversational behaviour. Per-companion personas are listed under [Roadmap](#roadmap).
+> **Honest note.** Companions differ in **voice, face and name**, and in nothing else. The coach's conversation prompt is the same for all six (it varies by scenario, style, difficulty and focus, never by companion), so everything the app says about a companion describes their *voice*, in the words of `VOICES[...]["desc"]` in `personalities.py`, and the landing page says outright that all six coach the same way. An earlier version described personalities ("changes subject twice a minute", "exacting about tense") that the prompt never produced; that copy is gone, and `e2e/public.spec.js` fails if those phrases come back on the landing page. The one-word vibes are playful labels for the voice; two of them (*Stickler* for Alan's "measured" voice and *Dramatic* for Lessac's "deep, deliberate" one) go a little beyond the voice descriptions, and are one word each to change in `frontend/lib/characters.js`. Per-companion personas are listed under [Roadmap](#roadmap).
 
 ### Speaking styles and accents
 
@@ -464,7 +466,7 @@ Mistakes are weighted by severity (high 1.5, medium 1.0, low 0.5). A density is 
 
 `/history` lists every past session, newest first, 20 per page: the companion's face, the scenario and style, the date, the level, "unfinished" for sessions that were never ended, and figures for turns, score, fixes, fluency, clarity and length. A strip at the top totals the sessions, turns, corrections and time.
 
-Opening a session (`/history/[id]`) shows the full transcript with each of your turns' speech chips and its corrections laid out beneath it, plus a link to the report. Another learner's session is reported as "not found" (never "forbidden"), so ids cannot be probed.
+Opening a session (`/history/[id]`) shows the full transcript with each of your turns' speech chips and its corrections laid out beneath it, plus a link to the report. A session that was never finished instead shows a banner with a **Finish session** button: ending a session is what gives it a score and a report, and nothing else in the app can end it later. (The server closes it where you stopped talking, so the time it sat open is not counted.) Another learner's session is reported as "not found" (never "forbidden"), so ids cannot be probed.
 
 ### Progress
 
@@ -505,11 +507,13 @@ The weakness table is a cache: it is rebuilt from your corrections whenever it i
 ### Looks and accessibility
 
 - **Light and dark themes.** A toggle in the sidebar and on the landing page. Until you choose, AURA follows your operating system; the choice is applied before the page paints, so there is no flash of the wrong theme.
-- **Responsive layout.** On phones and tablets the sidebar becomes a slide-in drawer with a top bar.
-- **Reduced motion.** Parallax and decorative animation switch off when your system asks for reduced motion.
-- **Semantics.** Selectable chips expose their pressed state, avatars and sprites carry text labels, errors use alert and status regions, and unavailable choices explain themselves in text rather than only by being greyed out.
+- **Responsive layout.** On phones and tablets the sidebar becomes a slide-in drawer with a top bar. While it is closed its links cannot be reached with Tab; open, it takes focus, closes on Escape, on a tap outside or on any link, and hands focus back to the menu button, and the page behind it is made inert.
+- **Keyboard.** Everything can be used without a mouse, including the talk button (hold Space or Enter, or switch to tap-to-talk). The sidebar marks the current page (`aria-current`), and every page has its own tab title.
+- **Screen readers.** The phase of the session ("Listening...", "Amy is thinking...") and the corrections status are live regions, and what the recogniser heard you say is announced. The coach's reply is deliberately not read out as text, because it is spoken aloud. Selectable chips expose their pressed state, avatars and sprites carry text labels, errors use alert and status regions, and unavailable choices explain themselves in written text, not only by being greyed out or in a tooltip.
+- **Reduced motion.** Parallax, the login card's tilt, the idle waveform, the poses' crossfades and smooth scrolling all switch off when your system asks for reduced motion. (A live microphone or voice level keeps moving: it is information, not decoration.)
+- **Contrast.** The palette was checked by calculation against WCAG AA: text against each surface it sits on (4.5:1) and the chart lines against the panel (3:1), in both themes. The colours are tokens in `app/globals.css`.
 
-AURA has not been audited against WCAG, and recording has only been exercised in Chrome (see [Known limitations](#known-limitations)).
+An automated axe scan (`e2e/accessibility.spec.js`) fails on any accessibility problem of moderate or worse impact on every page; that is a floor, not an audit. AURA has not been audited against WCAG by a person or tested with a screen reader, and recording has only been exercised in Chrome (see [Known limitations](#known-limitations)).
 
 ### Tools for developers and operators
 
@@ -871,7 +875,7 @@ Deleting a user cascades through every table, in the database itself (`ON DELETE
 | **Browser APIs** | MediaRecorder, Web Audio API | Hold-to-talk recording, ordered playback, live waveform |
 | **Charts, art and type** | A hand-written SVG line chart; WebP artwork generated by a build script (`sharp`); Playfair Display and Plus Jakarta Sans fetched at build time by `next/font` and served from your own host | No charting or UI library, and no runtime requests to a font CDN |
 | **Services** | Resend (email), Cloudinary (profile photos), Sentry (optional error tracking) | Each optional and off when not configured |
-| **Quality** | pytest 9, Playwright (Chrome), ESLint 9, GitHub Actions | Offline suite, browser journey, lint, CI |
+| **Quality** | pytest 9, Node's built-in test runner, Playwright (Chrome) with axe-core, ESLint 9, GitHub Actions | Offline suite, frontend unit tests, browser tests and accessibility scans, lint, CI |
 | **Packaging** | Docker (python:3.14-slim, non-root), docker-compose for local PostgreSQL | One image with code, voices and the Whisper model baked in |
 
 Why these choices, in short:
@@ -890,7 +894,7 @@ Why these choices, in short:
 ```text
 AI-Projects/                          (the repository)
 ├── README.md                         this file
-├── .github/workflows/ci.yml          CI: backend tests on PostgreSQL, frontend lint and build
+├── .github/workflows/ci.yml          CI: backend tests on PostgreSQL; frontend lint, unit tests and build
 └── Aurora/                           the AURA project
     ├── README.md                     operations guide: setup, configuration, STT choice, deploying
     ├── AURA_remaining_work_plan.md   test report, what was built, what was found
@@ -922,12 +926,16 @@ AI-Projects/                          (the repository)
     │   ├── tests/                    the pytest suite, plus regression/ for the live-LLM cases
     │   └── requirements*.txt         pinned runtime, development and terminal-client dependencies
     ├── frontend/
-    │   ├── app/                      the 12 routes (landing, auth, practice, history, report, progress, profile)
-    │   ├── components/               UI pieces
-    │   ├── lib/                      api.js, auth.js, audioQueue.js, accents.js, characters.js, theme.js, wordAudio.js
-    │   ├── hooks/                    motion hooks (pointer parallax, reduced motion)
+    │   ├── app/                      the routes: landing and auth pages, plus (app)/ for the signed-in ones
+    │   │                             (practice, progress, history, report, profile), which share one layout
+    │   │                             (login check + sidebar); not-found, error, opengraph-image
+    │   ├── components/               UI pieces (AppShell and AppSidebar frame every signed-in page)
+    │   ├── lib/                      api.js, auth.js, audioQueue.js, accents.js, characters.js, theme.js, wordAudio.js,
+    │   │                             and the pure helpers with unit tests: format, ndjson, recording, redirects
+    │   ├── hooks/                    motion hooks (pointer parallax, reduced motion) and media-query hooks
     │   ├── public/characters/        the companions' artwork: sprites, faces, scenes
-    │   ├── e2e/                      Playwright tests and the speech fixture
+    │   ├── aura-project-assets/      the source images the artwork is built from
+    │   ├── e2e/                      Playwright tests (journey, lifecycle, accessibility, public, phone) and the speech fixture
     │   └── scripts/build-characters.cjs   rebuilds the artwork from the source images
     ├── scripts/                      download_voices.py, loadtest_voice.py, smoke_container.py
     └── voices/                       Piper models (downloaded; git-ignored)
@@ -945,7 +953,7 @@ AI-Projects/                          (the repository)
 | **Node.js 22** | For the web app |
 | **Docker** | Runs PostgreSQL locally (`docker compose`); also used to build the backend image |
 | **A Groq API key** | Free at [console.groq.com](https://console.groq.com). The free tier is enough to try AURA (see [Performance and limits](#performance-and-limits)) |
-| **Google Chrome** | The browser the app has been tested in |
+| **Google Chrome** | The browser the app has been tested in (Firefox and Safari are not tested; see [Known limitations](#known-limitations)) |
 | **About 700 MB of disk** | Eight voice models (about 550 MB) plus the Whisper model (about 150 MB, downloaded on first use) |
 | *Optional* | A Resend key (email codes), Cloudinary credentials (profile photos), Google OAuth credentials (Google sign-in). Each feature is simply off when its settings are blank |
 
@@ -1017,8 +1025,8 @@ npm run dev
 | Apply migrations / check for drift | `alembic -c backend/alembic.ini upgrade head` / `alembic -c backend/alembic.ini check` |
 | Backend tests | `pip install -r backend/requirements-dev.txt`, then `pytest` |
 | Live LLM regression (spends Groq quota) | `pytest -m llm` |
-| Frontend lint and production build (from `frontend/`) | `npm run lint` and `npm run build` |
-| Browser journey (from `frontend/`; the whole stack must be running) | `npm run e2e` |
+| Frontend lint, unit tests and production build (from `frontend/`) | `npm run lint`, `npm test` and `npm run build` |
+| Browser tests (from `frontend/`; the whole stack must be running) | `npm run e2e` (everything), or one file, for example `npx playwright test e2e/public.spec.js --project=desktop` |
 | Build and smoke-test the container | `docker build -t aura-backend .` then `python scripts/smoke_container.py` |
 | Measure latency | `python scripts/loadtest_voice.py --users 1 3 --turns 2` |
 | Talk from the terminal | `pip install -r backend/requirements-local.txt`, then `python local_client.py --email you@example.com --voice alan --style irish --scenario interview` |
@@ -1071,7 +1079,8 @@ Everything is read in `Aurora/backend/config.py` from environment variables or `
 | Variable | Default | What it does |
 |---|---|---|
 | `NEXT_PUBLIC_API_BASE` | `http://localhost:8000` | **Frontend.** Where the API is (set in `frontend/.env.local`, or at build time) |
-| `E2E_BASE_URL` / `E2E_API_BASE` | `http://localhost:3000` / `http://localhost:8000` | **Browser tests.** Which stack the Playwright journey drives |
+| `NEXT_PUBLIC_SITE_URL` | `http://localhost:3000` | **Frontend.** The public address of the web app, which link previews (the card shown when the site is shared) are built from. Only matters once it is deployed |
+| `E2E_BASE_URL` / `E2E_API_BASE` | `http://localhost:3000` / `http://localhost:8000` | **Browser tests.** Which stack the Playwright tests drive |
 | `PORT` | `8000` | **Container.** The port uvicorn serves on |
 | `RUN_MIGRATIONS` | `true` | **Container.** Apply migrations on start (set `false` when a release step migrates instead) |
 | `FORWARDED_ALLOW_IPS` | `*` | **Container.** Trust `X-Forwarded-For` from the platform's proxy (see [Deployment](#deployment)) |
@@ -1163,12 +1172,13 @@ At start-up the API compares the database's revision with the code's. In develop
 
 | Layer | What it checks | Command | Needs |
 |---|---|---|---|
-| **Backend suite** | 568 tests at the time of writing: authentication and account safety, ownership checks, the voice stream and every failure path, analysis cleaning, fluency, clarity, scoring, reports, progress, weaknesses, difficulty, accents and voices, rate limiting, Google sign-in, migrations, production checks | `pytest` | PostgreSQL; creates its own `aura_test` database |
+| **Backend suite** | 572 tests at the time of writing: authentication and account safety, ownership checks, the voice stream and every failure path, analysis cleaning, fluency, clarity, scoring, reports, progress, weaknesses, difficulty, accents and voices, rate limiting, Google sign-in, migrations, production checks | `pytest` | PostgreSQL; creates its own `aura_test` database |
 | **Live regression** | 27 cases of the real analysis prompt against the real model, so a prompt tweak that fixes one case cannot silently break another | `pytest -m llm` | A Groq key; costs about 40,000 tokens of quota |
-| **Browser journey** | Sign up, speak (Chrome's fake microphone plays a recorded sentence), see corrections arrive, end the session, read the report, find it in history, pin a difficulty, delete the account; plus the speaking-style pickers and a legacy saved pair | `npm run e2e` (from `frontend/`) | The whole stack running; Chrome |
+| **Frontend unit tests** | The pure helpers, in plain Node with no browser: duration and clock formatting, the accent rules and the sentences that explain a switched-off choice, reading the reply stream (a line split across chunks, a stream that goes quiet, a caller that gives up), choosing a recording format per browser, and refusing a redirect that leaves the site | `npm test` (from `frontend/`) | Node 22 |
+| **Browser tests** | Five files: **the journey** (sign up, speak with Chrome's fake microphone playing a recorded sentence, see corrections arrive, end the session, read the report, find it in history, pin a difficulty, delete the account; plus the speaking-style pickers and a legacy saved pair); **lifecycle** (leaving mid-session, finishing a session later, a reply cut off part-way); **accessibility** (the microphone by keyboard and in tap mode, page titles, and an axe scan of every page); **public** (titles, the 404 page, the security headers, the share preview, the honesty guards on the landing page, the forgot-password flow); **phone** (a 390 px screen: the drawer menu and no sideways scrolling) | `npm run e2e` (from `frontend/`) | The whole stack running; Chrome. Only the journey spends speech-to-text and language-model calls: the other files fake the server's reply |
 | **Lint and build** | ESLint (including `no-undef`) and a production build | `npm run lint`, `npm run build` | Node |
 | **Container smoke test** | Starts the real image on a throwaway database: migrations run, models load, a recording is transcribed, voices (including accent voices) speak, rate limits see real client addresses, the health check passes | `python scripts/smoke_container.py` | Docker and the compose PostgreSQL |
-| **CI** | The backend suite on PostgreSQL, and the frontend lint and build, on every push that touches `Aurora/` | `.github/workflows/ci.yml` | GitHub Actions |
+| **CI** | The backend suite on PostgreSQL, and the frontend lint, unit tests and build, on every push that touches `Aurora/` | `.github/workflows/ci.yml` | GitHub Actions |
 
 **The offline suite is hermetic.** It needs no network, no model files and no keys, and it never touches your real database or `.env`:
 
@@ -1219,7 +1229,7 @@ On start it applies migrations (`RUN_MIGRATIONS=false` to skip) and serves on `$
 | **Behind a proxy** | The image sets `FORWARDED_ALLOW_IPS=*` so each learner's address is read from `X-Forwarded-For` (otherwise every learner shares the proxy's rate-limit bucket). With `*` the *left-most* address is trusted, which a client can forge if your platform appends to what the client sent instead of replacing it. If your platform publishes its proxies' addresses, set `FORWARDED_ALLOW_IPS` to those. Never run the container directly on the internet with `*` |
 | **Health checks** | Point the platform at `/health` (fast) and an uptime monitor at `/health?full=true` (also pings Groq, a couple of seconds). Both answer `503` when the app cannot do its job; being rate-limited by Groq is reported but is not an outage |
 | **Database** | Any managed PostgreSQL. Use the provider's connection string as `DATABASE_URL`, usually with `?sslmode=require` |
-| **Frontend** | Import the repository into Vercel, set the project's root directory to `Aurora/frontend`, and set `NEXT_PUBLIC_API_BASE` to the API's public URL. On the API side set `FRONTEND_URL` to the Vercel URL (and `CORS_ORIGINS` for any preview URLs). The microphone only works on `https://` pages (and on `localhost`) |
+| **Frontend** | Import the repository into Vercel, set the project's root directory to `Aurora/frontend`, and set `NEXT_PUBLIC_API_BASE` to the API's public URL (and `NEXT_PUBLIC_SITE_URL` to the app's own, so shared links get their preview card). On the API side set `FRONTEND_URL` to the Vercel URL (and `CORS_ORIGINS` for any preview URLs). The microphone only works on `https://` pages (and on `localhost`) |
 
 **Production checklist.** With `ENVIRONMENT` set to anything but `development`, the API checks its own configuration at start-up and logs each finding as `Production check: ...` (it never refuses to start over them, so read your first deploy's log). It covers: `JWT_SECRET` is at least 32 random characters and not a placeholder; `FRONTEND_URL` is not localhost and is https; `CORS_ORIGINS` has no localhost; `GOOGLE_REDIRECT_URI` is https when Google sign-in is configured; `RESEND_API_KEY` is set and `EMAIL_FROM` is on a domain you have verified with Resend; Cloudinary is configured and `SENTRY_DSN` is set; `RATE_LIMITS_ENABLED` is on, `SQL_ECHO` is off and `LOG_LEVEL` is not `DEBUG`. `python check_setup.py` runs the same checklist against your `.env` (set `ENVIRONMENT=production` first). Also: rotate any key that has ever been pasted into a chat or committed, and keep the database private.
 
@@ -1291,6 +1301,8 @@ Deleting your account removes everything under it from the database in one step,
 - **Ownership checks everywhere:** another user's session, report or conversation is a `404`.
 - **Request limits before buffering:** oversized bodies are rejected with `413` before the framework spools them to disk.
 - **CORS allow-list** built from `FRONTEND_URL` and `CORS_ORIGINS`; the OAuth cookie is `Secure` outside local development.
+- **Browser security headers** on every page (`frontend/next.config.mjs`): the page cannot be framed by another site (`frame-ancestors 'none'`, plus `X-Frame-Options`), no `<base>` or `<object>` can be injected, forms may only post to this site, MIME sniffing is off, the referrer is trimmed for other sites, the microphone is allowed for this site only, and the `X-Powered-By` banner is gone. The Content-Security-Policy is deliberately only this safe subset: a strict `script-src` needs a fresh nonce on every request, which Next.js supports only on dynamically rendered pages, and that would mean giving up prerendering the whole app. `e2e/public.spec.js` checks the headers on a production build.
+- **Sign-in redirects stay on the site.** The destination after Google sign-in comes from the address bar, so only a path on this site is accepted (anything else, including `//host` and backslash tricks, falls back to the practice page).
 - **LLM output is untrusted input:** validated, normalised, quote-checked and capped before it touches the database.
 - **Production self-check, honest health endpoint, privacy-safe Sentry set-up, non-root container.**
 
@@ -1317,7 +1329,7 @@ Deleting your account removes everything under it from the database in one step,
 
 ### Honest notes
 
-- The session token is kept in the browser's `localStorage` (the usual trade-off for a single-page app: simple, but readable by any script that runs on the page). The app avoids putting tokens in URLs and the frontend loads no third-party scripts (not even a font CDN at run time), but there is no `HttpOnly` cookie option today.
+- The session token is kept in the browser's `localStorage` (the usual trade-off for a single-page app: simple, but readable by any script that runs on the page). The app avoids putting tokens in URLs and the frontend loads no third-party scripts (not even a font CDN at run time), but there is no `HttpOnly` cookie option today, and the Content-Security-Policy is the safe subset described above rather than a strict script policy.
 - Rate limits are per process, which matches the single-worker design; behind several workers they would need a shared store.
 - Transcripts of what you say are sent to Groq. If that matters for your use, read Groq's terms, and consider that `STT_PROVIDER=local` at least keeps *audio* on your server.
 
@@ -1332,10 +1344,11 @@ Worth knowing before you rely on it:
 - **Analysis is an LLM's judgement.** It is accurate on the regression set (27 cases), but model output varies a little between runs and it can occasionally miss a mistake or, rarely, flag a correct sentence. Per-turn feedback is not a grade from a teacher.
 - **Praise for phrasal verbs is unreliable.** The coach praises idioms consistently, but praised a correct sentence full of phrasal verbs only about half the time in testing, on either model. It never calls them mistakes.
 - **The accents are real regional speakers, but no native speaker has judged them.** Each voice was chosen from a corpus's own labels (accent, region, gender) and checked for intelligibility, which proves the speech is clear, not that it sounds authentically Irish or Scottish. The corpus has two Australian speakers (both men), so Eida, Maya, Amy and Lessac have no Australian voice, and its British speakers are mostly from southern England.
-- **Companions differ in voice and face, not in conversation style.** The prompt is the same for all six.
+- **Companions differ in voice, face and name, not in conversation style.** The prompt is the same for all six, and the app's copy describes only their voices.
 - **Free-tier Groq limits** cap how many learners can practise at once.
 - **Single process.** Rate limits are in memory; see [Deployment](#deployment).
-- **Browsers.** Recording has been exercised in Chrome. Firefox and Safari recording, phones, and the light theme on every page have not been tested.
+- **Browsers.** Everything has been exercised in Chrome, on a desktop and in a phone-sized window with Chrome's own emulation. **Safari (iPhone and Mac) and Firefox have not been tested.** The code follows what Safari is known to need (recording MP4, the audio system woken inside the press that starts a turn, the upload named for what was recorded), but until it has run there on a real device, treat voice on Safari as unproven. No screen reader has been used on it either.
+- **Leaving a session.** Ending a session when the tab is closed is a best-effort request that some browsers drop; the fallback is the *Finish session* button on the session's History page, which is always there.
 - **Not exercised against the real services:** the Google sign-in success path (a human has to click through consent), real Resend email delivery and real Cloudinary uploads were tested with fakes and validation only.
 - **Not built:** PDF export of a report, and WebSocket streaming (streaming over HTTP meets the latency target).
 - Sessions from before speech metrics existed have no fluency or clarity data, and are shown as not analysed rather than scored.
@@ -1346,7 +1359,7 @@ Worth knowing before you rely on it:
 
 Ideas that follow from the limitations above. They are suggestions, not promises.
 
-- **Per-companion personas** in the conversation prompt, so the personalities on the landing page become real behaviour (or soften that copy).
+- **Per-companion personas** in the conversation prompt, so each companion could really converse differently (and the app's copy could then describe that, which today it must not).
 - **More accents and more speakers**, including an Australian female voice, and review of every accent by native speakers.
 - **Phoneme-level pronunciation feedback** with a dedicated model, alongside (not instead of) the honest clarity estimate.
 - **A teacher view**: share a report or a weak-spot list with a tutor.
@@ -1397,7 +1410,7 @@ Ideas that follow from the limitations above. They are suggestions, not promises
 
 1. Follow [Getting started](#getting-started) to run the stack, and install the dev dependencies (`pip install -r backend/requirements-dev.txt`).
 2. **Backend conventions.** Type hints; docstrings that explain *why*; log through `logging.getLogger("aura.<area>")`, never `print`; read settings only from `backend/config.py`; change the schema only with an Alembic migration (autogenerate, then review, then `alembic check`); keep scoring code pure and bump `SCORING_VERSION` whenever a formula changes.
-3. **Frontend conventions.** Plain JavaScript (deliberately not TypeScript); keep every API call in `lib/api.js` or `lib/auth.js`; run `npm run lint` and `npm run build`. **Next.js 16 differs from older versions**: read the relevant guide in `frontend/node_modules/next/dist/docs/` before relying on remembered APIs.
+3. **Frontend conventions.** Plain JavaScript (deliberately not TypeScript); keep every API call in `lib/api.js` or `lib/auth.js`; put logic that can be a pure function in `lib/` with a `*.test.js` beside it; run `npm run lint`, `npm test` and `npm run build`. New signed-in pages go in `app/(app)/` (they get the sidebar and the login check from its layout), with a small `layout.js` that sets the tab title. **Never write copy that promises what the app does not do** (a companion's personality, a dashboard figure that does not exist): describe only what is real, and explain a switched-off control in visible text, not only a tooltip. **Next.js 16 differs from older versions**: read the relevant guide in `frontend/node_modules/next/dist/docs/` before relying on remembered APIs (for instance, an error boundary receives `retry`, not `reset`).
 4. **Tests.** Add a test with every change. New backend tests must stay hermetic (use the `ai` fixture; never call the real LLM). After touching the analysis prompt or model, run `pytest -m llm`. Before a pull request, run the backend suite, lint, build and, for UI changes, the browser journey.
 5. **Honesty rules.** If a feature cannot deliver something, the interface must not promise it (the accent pairs are the model example).
 
@@ -1438,7 +1451,7 @@ The profile page repeats this credit. The six companions' own voices are separat
 
 ### Licences
 
-- **AURA itself:** no `LICENSE` file has been added to the repository yet, so by default all rights are reserved. Add a licence before inviting contributions or reuse. The companion artwork in `Aurora/frontend/public/characters` and `Aurora/frontend/aura-project-assests` is project material and is not covered by the third-party notes here.
+- **AURA itself:** no `LICENSE` file has been added to the repository yet, so by default all rights are reserved. Add a licence before inviting contributions or reuse. The companion artwork in `Aurora/frontend/public/characters` and `Aurora/frontend/aura-project-assets` is project material and is not covered by the third-party notes here.
 - **Dependencies:** each carries its own licence, declared in its package metadata. Most of the Python runtime is MIT, BSD or Apache-2.0 (FastAPI, SQLAlchemy, Alembic, Pydantic, faster-whisper, ONNX Runtime, the Groq SDK, bcrypt and others). Two deserve a look before you *distribute* anything: **`piper-tts` is GPL-3.0-or-later**, so redistributing a container image that bundles it can carry GPL obligations (check before you do), and `psycopg2-binary` is LGPL with exceptions.
 - **Models:** the `gpt-oss` models are Apache-2.0, Whisper is MIT, and every Piper voice has its own model card.
 

@@ -3,29 +3,16 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import AuthGuard from "@/components/AuthGuard";
-import AppSidebar from "@/components/AppSidebar";
 import Sprite from "@/components/Sprite";
 import UserAvatar from "@/components/UserAvatar";
 import { CorrectionItem } from "@/components/CorrectionsPanel";
 import SpeechMetrics from "@/components/SpeechMetrics";
-import { getSession } from "@/lib/api";
+import { endSession, getSession } from "@/lib/api";
 import { getStoredUser } from "@/lib/auth";
 import { faceSrc, getCompanion, sceneLabel, spriteSrc, styleLabel } from "@/lib/characters";
-import { formatDate, formatDuration } from "../page";
+import { formatDate, formatDuration } from "@/lib/format";
 
-export default function SessionDetailPage() {
-  return (
-    <AuthGuard>
-      <div className="flex min-h-screen flex-1 flex-col lg:flex-row">
-        <AppSidebar />
-        <SessionDetail />
-      </div>
-    </AuthGuard>
-  );
-}
-
-function SessionDetail() {
+export default function SessionDetail() {
   const { id } = useParams();
   const [session, setSession] = useState(null);
   const [status, setStatus] = useState("loading");
@@ -59,6 +46,11 @@ function SessionDetail() {
 
   const who = getCompanion(session?.voice);
 
+  // Loads the session again after it has been finished, so it shows as complete and links to its report.
+  async function reload() {
+    setSession(await getSession(id));
+  }
+
   return (
     <main className="min-w-0 flex-1 px-5 py-7 sm:px-8 lg:px-10 lg:pt-9 lg:pb-14">
       <Link href="/history" className="text-[10px] font-bold tracking-[0.18em] text-soft uppercase transition hover:text-brand">
@@ -81,7 +73,7 @@ function SessionDetail() {
               <Sprite src={spriteSrc(who.id, "idle")} alt={who.name} className="absolute inset-0" />
             </div>
             <div className="absolute inset-x-5 top-5 z-4">
-              <div className="text-[9.5px] font-bold tracking-[0.2em] text-soft uppercase">
+              <div className="text-[10px] font-bold tracking-[0.2em] text-soft uppercase">
                 {formatDate(session.started_at)} · with {who.name}
                 {session.difficulty ? ` · ${session.difficulty.label} level` : ""}
               </div>
@@ -102,6 +94,8 @@ function SessionDetail() {
               <Figure n={formatDuration(session.duration_seconds)} label="Length" />
               <Figure n={styleLabel(session.style)} label="Style" small />
             </div>
+
+            {!session.is_complete && <FinishBanner session={session} onFinished={reload} />}
 
             {session.is_complete && session.turn_count > 0 && (
               <Link
@@ -132,11 +126,58 @@ function SessionDetail() {
   );
 }
 
+/**
+ * A session that was never ended has no score or report (they are written when a session ends), and nothing else
+ * in the app can end it later, so it can be finished from here. The server closes it where the learner stopped
+ * talking, so the time it sat open is not counted as practice.
+ */
+function FinishBanner({ session, onFinished }) {
+  const [finishing, setFinishing] = useState(false);
+  const [error, setError] = useState(null);
+  const spoke = session.turn_count > 0;
+
+  async function finish() {
+    setFinishing(true);
+    setError(null);
+    try {
+      await endSession(session.id);
+      await onFinished();
+    } catch (err) {
+      setError(err.message);
+      setFinishing(false);
+    }
+  }
+
+  return (
+    <div className="border border-brand bg-brand-soft px-5 py-4 text-sm leading-normal">
+      <p className="font-bold">This session was never finished.</p>
+      <p className="mt-1">
+        {spoke
+          ? "A session gets its score and report when it ends. Finish this one to get them."
+          : "Nothing was said in it. Finish it to close it."}
+      </p>
+      <button
+        type="button"
+        onClick={finish}
+        disabled={finishing}
+        className="mt-3 h-10 cursor-pointer bg-foreground px-4.5 text-[10px] font-bold tracking-[0.16em] whitespace-nowrap text-background uppercase transition hover:bg-brand hover:text-on-brand disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {finishing ? "Finishing…" : "Finish session"}
+      </button>
+      {error && (
+        <p role="alert" className="mt-3 text-xs">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Figure({ n, label, small }) {
   return (
     <div className="-mr-px -mb-px flex-[1_1_110px] border border-panel-border bg-panel p-4.5">
       <div className={`font-display leading-none ${small ? "truncate text-lg" : "text-[26px]"}`}>{n}</div>
-      <div className="mt-1.5 text-[9.5px] font-bold tracking-[0.16em] text-soft uppercase">{label}</div>
+      <div className="mt-1.5 text-[10px] font-bold tracking-[0.16em] text-soft uppercase">{label}</div>
     </div>
   );
 }

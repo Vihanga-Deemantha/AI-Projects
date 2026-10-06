@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { usePrefersReducedMotion } from "@/hooks/motion";
 import { faceSrc, getCompanion } from "@/lib/characters";
 import UserAvatar from "@/components/UserAvatar";
-import SpeechMetrics from "@/components/SpeechMetrics";
+import SpeechMetrics, { MetricNotes } from "@/components/SpeechMetrics";
 
 /**
  * Scrolling transcript — the companion's bubbles carry their headshot, and
@@ -14,11 +15,12 @@ import SpeechMetrics from "@/components/SpeechMetrics";
 export default function ConversationView({ messages, companionId, style, thinking, scenarioLabel, user }) {
   const scrollRef = useRef(null);
   const companion = getCompanion(companionId);
+  const calm = usePrefersReducedMotion();
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [messages, thinking]);
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: calm ? "auto" : "smooth" });
+  }, [messages, thinking, calm]);
 
   return (
     <div className="flex flex-col border border-panel-border bg-panel">
@@ -52,6 +54,8 @@ export default function ConversationView({ messages, companionId, style, thinkin
           )}
         </div>
       )}
+
+      <MetricNotes turns={messages.filter((m) => m.role === "user")} />
     </div>
   );
 }

@@ -189,8 +189,8 @@ Upgrading an existing database: run `upgrade head` before starting the new code.
 |---|---|---|
 | Backend suite | `pip install -r backend/requirements-dev.txt` then `pytest` | PostgreSQL (`docker compose up -d`); creates its own `aura_test` database |
 | Live analysis regression | `pytest -m llm` (optionally `REGRESSION_MODEL=...`) | A real Groq key in `.env`; costs a little quota |
-| Frontend lint and build | `cd frontend && npm run lint && npm run build` | |
-| End-to-end journey | `cd frontend && npm run e2e` | The whole stack running, Chrome installed |
+| Frontend lint, unit tests and build | `cd frontend && npm run lint && npm test && npm run build` | Node 22 |
+| Browser tests | `cd frontend && npm run e2e` (or one file: `npx playwright test e2e/public.spec.js --project=desktop`) | The whole stack running, Chrome installed |
 | Latency / concurrency | `python scripts/loadtest_voice.py --users 1 3 --turns 2` | A running backend |
 | A built image | `docker build -t aura-backend .` then `python scripts/smoke_container.py` | Docker and the compose PostgreSQL; takes a few minutes |
 
@@ -200,11 +200,13 @@ Run `pytest -m llm` after **any** change to the analysis prompt or model: a twea
 
 **Why the image check matters.** The suite fakes Whisper, Piper and Groq, so it cannot notice a broken dependency pin or a missing model file. `scripts/smoke_container.py` starts the real image on a throwaway database and checks that migrations run, the models load, a recording is transcribed, a voice speaks and the health check passes. It exists because the first real container run found that `faster-whisper` 1.2.1 and `av` 19 (the version a fresh install resolved to) are incompatible, so every local transcription failed while all tests passed. `av` is now pinned to 18.x in `requirements.txt` with a test (`tests/test_stt.py`) that decodes real WAV and WebM/Opus recordings through the real libraries. Re-run the image check whenever you change `requirements.txt`.
 
-The end-to-end tests drive the real app in Chrome with a fake microphone playing `frontend/e2e/fixtures/speech.wav`: sign up, speak, see corrections arrive, end the session, read the report, find it in history, pin a difficulty, delete the account. Two shorter ones (no microphone, no coach reply) cover the speaking-style pickers: only companions who can speak a style are on offer, the reason shows on hover, the choice is saved, and a profile saved with a pair nobody can speak starts in Standard English.
+The browser tests drive the real app in Chrome with a fake microphone playing `frontend/e2e/fixtures/speech.wav`. `smoke.spec.js` is the whole journey: sign up, speak, see corrections arrive, end the session, read the report, find it in history, pin a difficulty, delete the account; two shorter tests cover the speaking-style pickers (only companions who can speak a style are on offer, the reason is written on the page, the choice is saved, and a profile saved with a pair nobody can speak starts in Standard English). The other files cover leaving a session (`lifecycle.spec.js`), keyboard use of the microphone, titles and an axe accessibility scan of every page (`accessibility.spec.js`), what a signed-out visitor sees and the security headers (`public.spec.js`), and a 390 px phone screen (`responsive.spec.js`). Only the journey spends speech-to-text and language-model calls; the rest fake the server's reply. Run them against a throwaway database and your own ports, never your development database (see `frontend/README.md`).
+
+`npm test` (from `frontend/`) runs the frontend's unit tests with Node's built-in runner, no browser needed: the formatters, the accent rules, reading the reply stream, choosing a recording format, and refusing a redirect that leaves the site.
 
 ESLint's `no-undef` rule is switched on in `frontend/eslint.config.mjs` (Next's preset leaves it off): a variable that exists only in another component builds cleanly and then crashes the page when it is opened, which is exactly what the full journey caught once.
 
-GitHub Actions (`.github/workflows/ci.yml`) runs the backend suite on PostgreSQL and the frontend lint and build on every push that touches `Aurora/`. The suite sets its own `DATABASE_URL` from `TEST_DATABASE_URL` before the app is imported, so the workflow only needs the latter.
+GitHub Actions (`.github/workflows/ci.yml`) runs the backend suite on PostgreSQL and the frontend lint, unit tests and build on every push that touches `Aurora/`. The suite sets its own `DATABASE_URL` from `TEST_DATABASE_URL` before the app is imported, so the workflow only needs the latter.
 
 ## Deploying
 
@@ -227,7 +229,7 @@ On start it applies migrations (`RUN_MIGRATIONS=false` to skip) and serves on `$
 
 **Database → any managed PostgreSQL** (Neon, Supabase, Render, RDS). Use the provider's connection string as `DATABASE_URL` (usually with `?sslmode=require`).
 
-**Frontend → Vercel** (or any Node host). Import the repository, set the project's root directory to `Aurora/frontend`, and set `NEXT_PUBLIC_API_BASE` to your API's public URL. Then on the API side set `FRONTEND_URL` to the Vercel URL (and `CORS_ORIGINS` for any preview URLs).
+**Frontend → Vercel** (or any Node host). Import the repository, set the project's root directory to `Aurora/frontend`, and set `NEXT_PUBLIC_API_BASE` to your API's public URL (and `NEXT_PUBLIC_SITE_URL` to the app's own, so shared links get a preview card). Then on the API side set `FRONTEND_URL` to the Vercel URL (and `CORS_ORIGINS` for any preview URLs).
 
 ### Production checklist
 

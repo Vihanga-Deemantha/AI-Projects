@@ -3,8 +3,6 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import AuthGuard from "@/components/AuthGuard";
-import AppSidebar from "@/components/AppSidebar";
 import DifficultyLabel from "@/components/DifficultyLabel";
 import { getDifficulty, getOptions } from "@/lib/api";
 import {
@@ -17,7 +15,7 @@ import {
   updateProfile,
   uploadAvatar,
 } from "@/lib/auth";
-import { speaks, styleAccent, whyNot, withArticle } from "@/lib/accents";
+import { speaks, styleAccent, styleRowNote, voiceRowNote, whyNot, withArticle } from "@/lib/accents";
 import { CAST, companionHint, faceSrc } from "@/lib/characters";
 
 const GOOGLE_LINK_ERRORS = {
@@ -37,15 +35,10 @@ const secondaryBtn =
 
 export default function ProfilePage() {
   return (
-    <AuthGuard>
-      <div className="flex min-h-screen flex-1 flex-col lg:flex-row">
-        <AppSidebar />
-        {/* useSearchParams() below (for a failed Google-link redirect) needs a Suspense boundary. */}
-        <Suspense fallback={null}>
-          <Profile />
-        </Suspense>
-      </div>
-    </AuthGuard>
+    // useSearchParams() below (for a failed Google-link redirect) needs a Suspense boundary.
+    <Suspense fallback={null}>
+      <Profile />
+    </Suspense>
   );
 }
 
@@ -267,6 +260,9 @@ function CompanionsCard({ user, onUpdated }) {
   const savedAccent = styleAccent(options, user.preferred_style);
   const savedPairBroken = Boolean(options) && !speaks(options, user.preferred_voice, user.preferred_style);
   const savedName = CAST.find((c) => c.id === user.preferred_voice)?.name ?? "Your companion";
+  // Written on the page, as well as in the tooltips, so a phone or keyboard user can read why a chip is off.
+  const voiceNote = voiceRowNote(options, user.preferred_style);
+  const styleNote = styleRowNote(options, user.preferred_voice);
 
   async function save(patch) {
     setSaving(true);
@@ -281,7 +277,7 @@ function CompanionsCard({ user, onUpdated }) {
   }
 
   return (
-    <Card title="Your companions" subtitle="Pick who greets you when you open a session, and the English you'd like to hear.">
+    <Card title="Your companions" subtitle="Pick the voice that coaches you, and the English you'd like to hear.">
       <div className="mt-4.5 flex flex-wrap gap-3">
         {CAST.map((c) => {
           const active = c.id === user.preferred_voice;
@@ -291,8 +287,10 @@ function CompanionsCard({ user, onUpdated }) {
             <button
               key={c.id}
               type="button"
-              onClick={() => save({ preferredVoice: c.id })}
-              disabled={saving || !can}
+              onClick={() => can && save({ preferredVoice: c.id })}
+              disabled={saving}
+              aria-disabled={!can || undefined}
+              aria-describedby={!can ? "profile-voice-note" : undefined}
               aria-pressed={active}
               title={can ? companionHint(c, accentNow) : whyNot(options, c.id, user.preferred_style)}
               className={`flex w-26 flex-col items-center gap-1.75 border px-2.5 py-4 transition ${
@@ -306,11 +304,16 @@ function CompanionsCard({ user, onUpdated }) {
                 style={{ backgroundImage: `url('${faceSrc(c.id, "smiling")}')` }}
               />
               <span className="font-display text-[15px] font-bold">{c.name}</span>
-              <span className="text-[9px] font-bold tracking-[0.14em] text-mute uppercase">{c.tag}</span>
+              <span className="text-[10px] font-bold tracking-[0.14em] text-mute uppercase">{c.tag}</span>
             </button>
           );
         })}
       </div>
+      {voiceNote && (
+        <p id="profile-voice-note" className="mt-2.5 text-xs leading-normal text-mute">
+          {voiceNote}
+        </p>
+      )}
 
       {styles.length > 0 && (
         <div className="mt-5.5">
@@ -323,8 +326,10 @@ function CompanionsCard({ user, onUpdated }) {
                 <button
                   key={s.id}
                   type="button"
-                  onClick={() => save({ preferredStyle: s.id })}
-                  disabled={saving || !can}
+                  onClick={() => can && save({ preferredStyle: s.id })}
+                  disabled={saving}
+                  aria-disabled={!can || undefined}
+                  aria-describedby={!can ? "profile-style-note" : undefined}
                   aria-pressed={active}
                   title={can ? undefined : whyNot(options, user.preferred_voice, s.id)}
                   className={`-mr-px -mb-px border px-3.5 py-2.25 text-[12.5px] whitespace-nowrap transition ${
@@ -336,11 +341,15 @@ function CompanionsCard({ user, onUpdated }) {
               );
             })}
           </div>
-          <p className="mt-2.5 text-[11.5px] leading-normal text-mute">
-            A style sets the words your coach uses and the accent you hear: your companion adopts it. Dimmed styles have no matching voice for
-            this companion yet.
+          <p className="mt-2.5 text-xs leading-normal text-mute">
+            A style sets the words your coach uses and the accent you hear: your companion adopts it.
+            {styleNote && (
+              <span id="profile-style-note" className="block">
+                {styleNote}
+              </span>
+            )}
           </p>
-          <p className="mt-2 text-[11px] leading-normal text-mute">
+          <p className="mt-2 text-xs leading-normal text-mute">
             Regional accents use real speakers from the CSTR VCTK Corpus and the Alba voice (University of Edinburgh, CC BY 4.0), run with Piper.
           </p>
         </div>
@@ -542,6 +551,7 @@ function ConnectedAccountsCard({ user, onUpdated, linkError }) {
             type="button"
             onClick={handleDisconnect}
             disabled={!canDisconnect || disconnecting}
+            aria-describedby={canDisconnect ? undefined : "disconnect-note"}
             title={canDisconnect ? undefined : "Set a password before disconnecting Google"}
             className={secondaryBtn}
           >
@@ -557,6 +567,11 @@ function ConnectedAccountsCard({ user, onUpdated, linkError }) {
           </a>
         )}
       </div>
+      {user.google_linked && !canDisconnect && (
+        <p id="disconnect-note" className="mt-3 text-xs leading-normal text-mute">
+          Google is how you sign in right now. Set a password in Security, above, and you will be able to disconnect it.
+        </p>
+      )}
       {(error || linkError) && <Notice>{error || linkError}</Notice>}
     </Card>
   );

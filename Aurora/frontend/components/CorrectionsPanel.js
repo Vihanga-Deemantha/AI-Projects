@@ -74,7 +74,8 @@ export default function CorrectionsPanel({ conversationId, refreshKey, onCountCh
     <div className="border border-panel-border bg-panel">
       <div className="flex items-center justify-between gap-3 border-b border-panel-border px-5 py-3.75">
         <span className="text-[10px] font-bold tracking-[0.2em] text-brand uppercase">Corrections</span>
-        <span className="flex items-center gap-2 text-[10px] font-bold tracking-[0.16em] text-mute uppercase">
+        {/* A status region, so a screen reader hears "Analysing…" and then the count when the feedback lands. */}
+        <span role="status" className="flex items-center gap-2 text-[10px] font-bold tracking-[0.16em] text-mute uppercase">
           {analysing && <span className="aura-blink h-1.5 w-1.5 bg-brand" aria-hidden="true" />}
           {analysing ? "Analysing…" : `${fixes} this session${praise > 0 ? ` · ${praise} nice` : ""}`}
         </span>
@@ -106,7 +107,7 @@ export function CorrectionItem({ correction }) {
   if (correction.is_positive) {
     return (
       <div className="border-b border-l-2 border-panel-border border-l-brand px-5 py-4.5 last:border-b-0">
-        <div className="mb-2 text-[9.5px] font-bold tracking-[0.16em] text-brand uppercase">Nice · {label}</div>
+        <div className="mb-2 text-[10px] font-bold tracking-[0.16em] text-brand uppercase">Nice · {label}</div>
         <div className="text-[14.5px] font-bold">&ldquo;{correction.original}&rdquo;</div>
         <div className="mt-1.75 text-[12.5px] leading-[1.55] text-soft">{correction.explanation}</div>
       </div>
@@ -116,7 +117,7 @@ export function CorrectionItem({ correction }) {
   const isError = correction.is_error;
   return (
     <div className="border-b border-panel-border px-5 py-4.5 last:border-b-0">
-      <div className="mb-2 text-[9.5px] font-bold tracking-[0.16em] text-mute uppercase">
+      <div className="mb-2 text-[10px] font-bold tracking-[0.16em] text-mute uppercase">
         {isError ? "" : "Suggestion · "}
         {label}
       </div>

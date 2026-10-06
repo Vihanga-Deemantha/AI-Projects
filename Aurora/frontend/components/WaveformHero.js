@@ -23,13 +23,13 @@ const POSES = ["idle", "listening", "thinking", "talking_open", "talking_emphati
  */
 export default function WaveformHero({
   companionId,
-  recordDisabled,
   isProcessing,
   isPlaying,
   paused,
   playbackAnalyser,
   micAnalyser,
   onAnalyser,
+  onPress,
   onRecordingComplete,
 }) {
   const companion = getCompanion(companionId);
@@ -63,7 +63,8 @@ export default function WaveformHero({
 
         <div className="absolute top-4 right-4 left-4 z-4 flex items-center gap-2 text-[10px] font-bold tracking-[0.16em] text-soft uppercase">
           <span className={`h-1.75 w-1.75 flex-none ${live ? "aura-blink bg-brand" : "bg-mute"}`} />
-          <span className="truncate">{status}</span>
+          {/* A status region: a screen reader says "Listening…", "Amy is thinking…" and so on as the phase changes. */}
+          <span role="status" className="truncate">{status}</span>
         </div>
 
         <div className={`relative z-3 -mb-0.5 h-75 max-w-full ${live ? "" : "aura-float"}`} style={{ aspectRatio: "700 / 680" }}>
@@ -81,8 +82,9 @@ export default function WaveformHero({
       </div>
 
       <RecordButton
-        disabled={recordDisabled || isProcessing}
+        disabled={isProcessing}
         onAnalyser={onAnalyser}
+        onPress={onPress}
         onRecordingComplete={onRecordingComplete}
       />
     </div>

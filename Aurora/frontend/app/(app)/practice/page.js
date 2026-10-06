@@ -3,32 +3,30 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import AppSidebar from "@/components/AppSidebar";
 import SessionSetup from "@/components/SessionSetup";
 import SessionControls from "@/components/SessionControls";
-import StatsRow, { formatDuration } from "@/components/StatsRow";
+import StatsRow from "@/components/StatsRow";
 import WaveformHero from "@/components/WaveformHero";
 import ConversationView from "@/components/ConversationView";
 import CorrectionsPanel from "@/components/CorrectionsPanel";
 import LatencyBadge from "@/components/LatencyBadge";
 import TodaysPractice from "@/components/TodaysPractice";
-import { endSession, getDifficulty, getOptions, getPracticeToday, startSession, streamMessage } from "@/lib/api";
+import { endSession, endSessionOnLeave, getDifficulty, getOptions, getPracticeToday, startSession, streamMessage } from "@/lib/api";
 import { getStoredUser, onUserUpdated, updateProfile } from "@/lib/auth";
 import { getCompanion } from "@/lib/characters";
 import { speaks } from "@/lib/accents";
 import { createAudioQueue } from "@/lib/audioQueue";
-import AuthGuard from "@/components/AuthGuard";
+import { formatClock } from "@/lib/format";
+import { micErrorMessage } from "@/lib/recording";
 
 let nextMessageId = 1;
 
 export default function PracticePage() {
   return (
-    <AuthGuard>
-      {/* Practice reads ?focus=... (set by the "Practise this" links on the progress page). */}
-      <Suspense fallback={null}>
-        <Practice />
-      </Suspense>
-    </AuthGuard>
+    // Practice reads ?focus=... (set by the "Practise this" links on the progress page).
+    <Suspense fallback={null}>
+      <Practice />
+    </Suspense>
   );
 }
 
@@ -65,9 +63,18 @@ function Practice() {
   const searchParams = useSearchParams();
   const refreshTodayTimerRef = useRef(null);
 
+  // Said aloud to screen-reader users (and shown to no one else): what the recogniser heard them say.
+  const [announcement, setAnnouncement] = useState("");
+
   const audioQueueRef = useRef(null);
   const saveQueueRef = useRef(Promise.resolve()); // profile saves from the setup panel, one at a time
   const currentAuraMessageIdRef = useRef(null);
+  const liveSessionRef = useRef(null); // the id of the session that is open right now, if any
+  // May the coach's voice play? True while a session is open. Once it has ended, or the learner has left the page,
+  // a reply that is still arriving must not start new audio (its text still lands, so the transcript is complete).
+  const voiceOnRef = useRef(false);
+  const endedWhileHiddenRef = useRef(false); // the session was ended because the page was put away (see the pagehide listener)
+  const handleEndSessionRef = useRef(null);
 
   // For the user's own chat bubbles (their avatar, WhatsApp-style). Read
   // after mount (localStorage is client-only) and stay in sync with edits
@@ -127,6 +134,52 @@ function Practice() {
     return () => clearInterval(id);
   }, [session, sessionEnded]);
 
+  // Which session is open right now, in a ref the cleanup below can read without re-subscribing on every change.
+  useEffect(() => {
+    liveSessionRef.current = session && !sessionEnded ? session.conversationId : null;
+  }, [session, sessionEnded]);
+
+  // The listeners below live as long as the page and must call the CURRENT version of handleEndSession.
+  useEffect(() => {
+    handleEndSessionRef.current = handleEndSession;
+  });
+
+  // Leaving this page (a link inside the app, a closed tab, another site) without pressing "End session": stop the
+  // coach mid-sentence and end the session, so it gets its report instead of staying "unfinished" for good. A
+  // reply that is still arriving is deliberately NOT cancelled: the server saves the coach's reply only when it has
+  // finished, and cutting it off would leave the last turn in History with no answer.
+  useEffect(() => {
+    const endOpenSession = () => {
+      const id = liveSessionRef.current;
+      if (!id) return false;
+      liveSessionRef.current = null;
+      endSessionOnLeave(id);
+      return true;
+    };
+    // The page is being put away: closed, sent to another site, or kept in the browser's back/forward cache.
+    const onPageHide = () => {
+      if (endOpenSession()) endedWhileHiddenRef.current = true;
+    };
+    // The Back button can bring a cached page back exactly as it was left, with its session looking live. That session
+    // is over, so show it as the ended one it is, rather than as one whose next turn the server would refuse.
+    const onPageShow = (e) => {
+      if (e.persisted && endedWhileHiddenRef.current) {
+        endedWhileHiddenRef.current = false;
+        handleEndSessionRef.current?.();
+      }
+    };
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pageshow", onPageShow);
+      endOpenSession();
+      voiceOnRef.current = false;
+      audioQueueRef.current?.close();
+      audioQueueRef.current = null;
+    };
+  }, []);
+
   function getAudioQueue() {
     if (!audioQueueRef.current) {
       const queue = createAudioQueue({
@@ -183,13 +236,23 @@ function Practice() {
     setCorrectionsRefreshKey(0);
     setError(null);
     setNotice(null);
-    getAudioQueue(); // created during a user gesture, for browser autoplay policies
+    voiceOnRef.current = true;
+    getAudioQueue();
     return newSession;
+  }
+
+  /**
+   * The mic was pressed (a click, a touch or a key): wake the audio system now, inside the gesture. Browsers such
+   * as Safari only let sound start from a user gesture, and the first reply arrives long after the press.
+   */
+  function handleMicPress() {
+    getAudioQueue().unlock();
   }
 
   async function handleStart() {
     setStarting(true);
     setError(null);
+    handleMicPress(); // the Start button is a gesture too, and it creates the audio queue after a network wait otherwise
     try {
       await ensureSession();
     } catch (err) {
@@ -206,6 +269,7 @@ function Practice() {
     if (session) {
       endSession(session.conversationId).catch(() => {});
     }
+    voiceOnRef.current = false; // a reply still arriving may add its text, but must not start new audio
     audioQueueRef.current?.close();
     audioQueueRef.current = null;
     setPlaybackAnalyser(null);
@@ -246,9 +310,15 @@ function Practice() {
     }
   }
 
+  /** A reply that never finished (a dropped connection, an error) must not stay behind as a faded "…" bubble. */
+  function settlePending() {
+    setMessages((prev) => prev.map((m) => (m.pending ? { ...m, pending: false } : m)));
+    currentAuraMessageIdRef.current = null;
+  }
+
   async function handleRecordingComplete(blob, recordingError) {
     if (recordingError) {
-      setError(describeMicError(recordingError));
+      setError(micErrorMessage(recordingError, recordingError.mode));
       return;
     }
     if (!blob) return;
@@ -264,6 +334,7 @@ function Practice() {
 
       await streamMessage(activeSession.conversationId, blob, {
         onTranscript: (text, messageId) => {
+          setAnnouncement(`You said: ${text}`);
           setMessages((prev) => [
             ...prev,
             { id: nextMessageId++, messageId, role: "user", text, timestamp: nowLabel() },
@@ -275,7 +346,7 @@ function Practice() {
           setMessages((prev) => prev.map((m) => (m.messageId === message_id ? { ...m, fluency, clarity } : m)));
         },
         onAudioChunk: (chunk) => {
-          getAudioQueue().enqueue(chunk.data, chunk.text);
+          if (voiceOnRef.current) getAudioQueue().enqueue(chunk.data, chunk.text);
           setMessages((prev) => {
             if (currentAuraMessageIdRef.current == null) {
               const id = nextMessageId++;
@@ -323,11 +394,13 @@ function Practice() {
         onWarning: (message) => setNotice(message),
         onError: (message) => {
           setError(message);
+          settlePending();
           setIsProcessing(false);
         },
       });
     } catch (err) {
       setError(err.message);
+      settlePending();
     } finally {
       setIsProcessing(false);
     }
@@ -371,138 +444,125 @@ function Practice() {
   const awaitingReply = isProcessing && !messages.some((m) => m.pending);
 
   return (
-    <div className="flex min-h-screen flex-1 flex-col lg:flex-row">
-      <AppSidebar />
+    <main className="min-w-0 flex-1 px-5 py-6 sm:px-8 sm:py-8 lg:px-10 lg:pt-9 lg:pb-14">
+      {/* For screen readers only: what the recogniser heard. The coach's reply is not repeated here: it is spoken aloud. */}
+      <div role="status" className="sr-only">
+        {announcement}
+      </div>
 
-      <main className="min-w-0 flex-1 px-5 py-6 sm:px-8 sm:py-8 lg:px-10 lg:pt-9 lg:pb-14">
-        <header className="flex flex-wrap items-end justify-between gap-4.5">
-          <div>
-            <div className="text-[10px] font-bold tracking-[0.22em] text-soft uppercase">Session</div>
-            <h1 className="mt-2.5 font-display text-[clamp(30px,3.6vw,46px)] leading-none font-bold">Practise English</h1>
-          </div>
-          <SessionControls
-            phase={phase}
-            hasSession={sessionActive}
-            starting={starting}
-            canPause={canPause}
-            onStart={handleStart}
-            onTogglePause={handleTogglePause}
-            onEnd={handleEndSession}
-          />
-        </header>
-
-        {error && (
-          <div role="alert" className="mt-5 border border-brand bg-brand-soft px-4 py-3 text-sm">
-            {error}
-          </div>
-        )}
-        {notice && !error && (
-          <div role="status" className="mt-5 border border-panel-border bg-field px-4 py-3 text-sm text-soft">
-            {notice}
-          </div>
-        )}
-
-        {phase === "ended" && (
-          <div className="mt-5 border border-brand bg-brand-soft px-4.5 py-3.5 text-sm">
-            <strong className="font-bold">Session complete.</strong>{" "}
-            {turns} {turns === 1 ? "turn" : "turns"} · {formatDuration(sessionSeconds)} ·{" "}
-            {correctionsCount} {correctionsCount === 1 ? "correction" : "corrections"} — saved to your history.
-            Ready when you are — hold the mic or use &ldquo;Start new session&rdquo; above.
-            {turns > 0 && session && (
-              <div className="mt-3">
-                <Link
-                  href={`/history/${session.conversationId}/report`}
-                  className="inline-flex h-10 items-center bg-foreground px-4.5 text-[10px] font-bold tracking-[0.16em] text-background uppercase transition hover:bg-brand hover:text-on-brand"
-                >
-                  See your report &rarr;
-                </Link>
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="mt-6.5 grid gap-5.5 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-          <div className="flex min-w-0 flex-col gap-4.5">
-            <WaveformHero
-              companionId={companion.id}
-              isProcessing={isProcessing}
-              isPlaying={isPlaying}
-              paused={paused}
-              playbackAnalyser={playbackAnalyser}
-              micAnalyser={micAnalyser}
-              onAnalyser={setMicAnalyser}
-              onRecordingComplete={handleRecordingComplete}
-            />
-
-            {timings && (
-              <div className="flex justify-center">
-                <LatencyBadge timings={timings} />
-              </div>
-            )}
-
-            <StatsRow
-              turns={turns}
-              sessionSeconds={sessionSeconds}
-              correctionsCount={correctionsCount}
-              fluencyScore={avgFluency}
-              clarityScore={avgClarity}
-            />
-
-            <TodaysPractice
-              exercise={today}
-              focus={focus}
-              label={focusLabel}
-              sessionActive={sessionActive}
-              onAccept={acceptTodaysPractice}
-              onClear={() => setFocus(null)}
-            />
-
-            <SessionSetup
-              options={options}
-              value={setupValue}
-              onChange={handleSetupChange}
-              sessionActive={sessionActive}
-              difficulty={sessionActive ? sessionLevel : level}
-            />
-          </div>
-
-          <div className="flex min-w-0 flex-col gap-5.5">
-            <ConversationView
-              messages={messages}
-              companionId={companion.id}
-              style={session?.style ?? setupValue.style}
-              thinking={awaitingReply}
-              scenarioLabel={scenarioLabel}
-              user={user}
-            />
-            <CorrectionsPanel
-              key={session?.conversationId ?? "no-session"}
-              conversationId={session?.conversationId}
-              refreshKey={correctionsRefreshKey}
-              onCountChange={setCorrectionsCount}
-            />
-          </div>
+      <header className="flex flex-wrap items-end justify-between gap-4.5">
+        <div>
+          <div className="text-[10px] font-bold tracking-[0.22em] text-soft uppercase">Session</div>
+          <h1 className="mt-2.5 font-display text-[clamp(30px,3.6vw,46px)] leading-none font-bold">Practise English</h1>
         </div>
-      </main>
-    </div>
+        <SessionControls
+          phase={phase}
+          hasSession={sessionActive}
+          starting={starting}
+          canPause={canPause}
+          onStart={handleStart}
+          onTogglePause={handleTogglePause}
+          onEnd={handleEndSession}
+        />
+      </header>
+
+      {error && (
+        <div role="alert" className="mt-5 border border-brand bg-brand-soft px-4 py-3 text-sm">
+          {error}
+        </div>
+      )}
+      {notice && !error && (
+        <div role="status" className="mt-5 border border-panel-border bg-field px-4 py-3 text-sm text-soft">
+          {notice}
+        </div>
+      )}
+
+      {phase === "ended" && (
+        <div role="status" className="mt-5 border border-brand bg-brand-soft px-4.5 py-3.5 text-sm">
+          <strong className="font-bold">Session complete.</strong>{" "}
+          {turns} {turns === 1 ? "turn" : "turns"} · {formatClock(sessionSeconds)} ·{" "}
+          {correctionsCount} {correctionsCount === 1 ? "correction" : "corrections"} — saved to your history.
+          Ready when you are — hold the mic or use &ldquo;Start new session&rdquo; above.
+          {turns > 0 && session && (
+            <div className="mt-3">
+              <Link
+                href={`/history/${session.conversationId}/report`}
+                className="inline-flex h-10 items-center bg-foreground px-4.5 text-[10px] font-bold tracking-[0.16em] text-background uppercase transition hover:bg-brand hover:text-on-brand"
+              >
+                See your report &rarr;
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="mt-6.5 grid gap-5.5 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+        <div className="flex min-w-0 flex-col gap-4.5">
+          <WaveformHero
+            companionId={companion.id}
+            isProcessing={isProcessing}
+            isPlaying={isPlaying}
+            paused={paused}
+            playbackAnalyser={playbackAnalyser}
+            micAnalyser={micAnalyser}
+            onAnalyser={setMicAnalyser}
+            onPress={handleMicPress}
+            onRecordingComplete={handleRecordingComplete}
+          />
+
+          {timings && (
+            <div className="flex justify-center">
+              <LatencyBadge timings={timings} />
+            </div>
+          )}
+
+          <StatsRow
+            turns={turns}
+            sessionSeconds={sessionSeconds}
+            correctionsCount={correctionsCount}
+            fluencyScore={avgFluency}
+            clarityScore={avgClarity}
+          />
+
+          <TodaysPractice
+            exercise={today}
+            focus={focus}
+            label={focusLabel}
+            sessionActive={sessionActive}
+            onAccept={acceptTodaysPractice}
+            onClear={() => setFocus(null)}
+          />
+
+          <SessionSetup
+            options={options}
+            value={setupValue}
+            onChange={handleSetupChange}
+            sessionActive={sessionActive}
+            difficulty={sessionActive ? sessionLevel : level}
+          />
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-5.5">
+          <ConversationView
+            messages={messages}
+            companionId={companion.id}
+            style={session?.style ?? setupValue.style}
+            thinking={awaitingReply}
+            scenarioLabel={scenarioLabel}
+            user={user}
+          />
+          <CorrectionsPanel
+            key={session?.conversationId ?? "no-session"}
+            conversationId={session?.conversationId}
+            refreshKey={correctionsRefreshKey}
+            onCountChange={setCorrectionsCount}
+          />
+        </div>
+      </div>
+    </main>
   );
 }
 
 function nowLabel() {
   return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function describeMicError(err) {
-  switch (err?.name) {
-    case "NotAllowedError":
-      return "Microphone permission was denied or dismissed. Click the mic/lock icon in your browser's address bar, allow microphone access, then try again.";
-    case "NotFoundError":
-      return "No microphone was found. Check that one is connected and try again.";
-    case "NotReadableError":
-      return "Your microphone is already in use by another app. Close it and try again.";
-    case "TooShortError":
-      return "That was too short to send — hold the mic button down while you speak, then release.";
-    default:
-      return "Could not access the microphone. Check your browser's permission settings and try again.";
-  }
 }

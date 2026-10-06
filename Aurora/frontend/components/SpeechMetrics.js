@@ -37,11 +37,36 @@ export default function SpeechMetrics({ fluency, clarity, voice, style, detailed
       {detailed && fluency && <FluencyDetail fluency={fluency} />}
       <UnclearWords clarity={clarity} voice={voice} style={style} />
       {detailed && clarity && (
-        <p className="max-w-[30em] text-right text-[11px] leading-normal text-mute">
+        <p className="max-w-[30em] text-right text-xs leading-normal text-mute">
           Clarity is an estimate from speech-recognition confidence, not phoneme-level pronunciation analysis.
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * The footnotes for the chips of a whole conversation, written once beneath it rather than only in hover
+ * tooltips (which never appear on a touch screen): what "Clarity" is (an estimate, not pronunciation scoring)
+ * and what a "*" on a chip means. Renders nothing until some turn actually has the chip in question.
+ * `turns` are the learner's messages, each with the `fluency` / `clarity` objects of the metrics event.
+ */
+export function MetricNotes({ turns }) {
+  const hasClarity = turns.some((t) => t.clarity);
+  const roughClarity = turns.some((t) => t.clarity && !t.clarity.word_level);
+  const noHesitations = turns.some((t) => t.fluency && !t.fluency.hesitations_tracked);
+  if (!hasClarity && !noHesitations) return null;
+
+  return (
+    <ul className="flex flex-col gap-1 border-t border-panel-border px-5 py-3 text-xs leading-normal text-mute">
+      {hasClarity && <li>Clarity is an estimate from speech-recognition confidence, not pronunciation scoring.</li>}
+      {roughClarity && (
+        <li>* On Clarity: this speech recogniser gives no per-word confidence, so the score comes from its overall confidence only.</li>
+      )}
+      {noHesitations && (
+        <li>* On fillers: &ldquo;um&rdquo; and &ldquo;uh&rdquo; aren&apos;t picked up by the speech recogniser in use, so the filler count can be too low.</li>
+      )}
+    </ul>
   );
 }
 
@@ -82,7 +107,7 @@ function FluencyDetail({ fluency }) {
   const fillerList = fillerText(fluency.filler_breakdown);
   if (!fillerList && !(fluency.longest_pause_seconds > 0) && fluency.hesitations_tracked) return null;
   return (
-    <p className="max-w-[30em] text-right text-[11px] leading-normal text-mute">
+    <p className="max-w-[30em] text-right text-xs leading-normal text-mute">
       {fillerList && <>Fillers: {fillerList}. </>}
       {fluency.longest_pause_seconds > 0 && <>Longest pause {fluency.longest_pause_seconds.toFixed(1)}s. </>}
       {!fluency.hesitations_tracked && <>&ldquo;um&rdquo;/&ldquo;uh&rdquo; aren&apos;t detected with local recognition.</>}
@@ -112,12 +137,12 @@ function UnclearWords({ clarity, voice, style }) {
 
   return (
     <div className="max-w-[30em] border border-panel-border bg-background px-3 py-2.5">
-      <div className="text-right text-[9.5px] font-bold tracking-[0.16em] text-mute uppercase">Hard to catch</div>
+      <div className="text-right text-[10px] font-bold tracking-[0.16em] text-mute uppercase">Hard to catch</div>
       <ul className="mt-1.5 flex flex-wrap justify-end gap-x-4 gap-y-2">
         {words.map((w) => (
           <li key={`${w.word}-${w.start}`} className="flex items-center gap-1.5 text-[13px]">
             <span className="font-bold">{w.word}</span>
-            <span className="text-[11px] text-mute" title="How confidently this word was recognised">
+            <span className="text-xs text-mute" title="How confidently this word was recognised">
               {Math.round(w.probability * 100)}%
             </span>
             <PlayButton label={`Hear "${w.word}"`} active={playing === `${w.word}:false`} onClick={() => hear(w.word, false)}>
@@ -129,7 +154,7 @@ function UnclearWords({ clarity, voice, style }) {
           </li>
         ))}
       </ul>
-      {error && <p className="mt-1.5 text-right text-[11px] text-mute">{error}</p>}
+      {error && <p className="mt-1.5 text-right text-xs text-mute">{error}</p>}
     </div>
   );
 }
@@ -140,7 +165,7 @@ function PlayButton({ label, active, onClick, children }) {
       type="button"
       onClick={onClick}
       aria-label={label}
-      className={`flex cursor-pointer items-center gap-1 border px-1.5 py-0.5 text-[9.5px] font-bold tracking-[0.1em] uppercase transition ${
+      className={`flex cursor-pointer items-center gap-1 border px-1.5 py-0.5 text-[10px] font-bold tracking-[0.1em] uppercase transition ${
         active ? "border-brand bg-brand text-on-brand" : "border-panel-border text-soft hover:border-brand hover:text-brand"
       }`}
     >
@@ -162,7 +187,7 @@ function Chip({ children, strong, muted, title }) {
   return (
     <span
       title={title}
-      className={`border px-2 py-0.5 text-[9.5px] font-bold tracking-[0.1em] whitespace-nowrap uppercase ${
+      className={`border px-2 py-0.5 text-[10px] font-bold tracking-[0.1em] whitespace-nowrap uppercase ${
         strong ? "border-brand text-brand" : muted ? "border-panel-border text-mute" : "border-panel-border text-soft"
       }`}
     >
