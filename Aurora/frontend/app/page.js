@@ -465,7 +465,7 @@ export default function HomePage() {
             <footer className="relative flex flex-wrap items-center justify-between gap-5 border-t border-panel-border py-5.5">
               <span className="font-display text-lg tracking-[0.16em]">AURA</span>
               <p className="max-w-[46em] text-[11.5px] leading-[1.55] text-soft">
-                Speaking styles change vocabulary and phrasing, informed by regional English — not claims of accent reproduction.
+                A speaking style changes the coach&apos;s vocabulary and phrasing and the accent you hear, which comes from recordings of real regional speakers. Not every companion has a voice for every accent.
               </p>
             </footer>
           </div>

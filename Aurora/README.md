@@ -1,5 +1,7 @@
 # AURA — AI English Speaking Coach
 
+> This is the **setup, configuration and operations guide**. The repository's top-level [README](../README.md) has the project overview, who it is for, the full feature tour, the architecture and the API reference.
+
 Practise spoken English out loud with an AI coach. You hold a button and talk; AURA transcribes you, replies in a natural voice, and — without interrupting the conversation — finds your grammar, vocabulary and phrasing mistakes, measures how you spoke (pace, pauses, filler words, clarity), and turns every session into a report, a progress chart, a list of your recurring weaknesses, and a conversation that gets harder as you improve.
 
 - **Voice loop**: microphone → speech-to-text → LLM → sentence-by-sentence text-to-speech, streamed so the coach starts speaking before it has finished thinking.
@@ -282,7 +284,7 @@ Aurora/
 ├── local_client.py             optional terminal client (see requirements-local.txt)
 ├── Dockerfile  .dockerignore   the backend image
 ├── docker-compose.yml          local PostgreSQL
-└── AURA_*_plan.md              the original plans, and AURA_remaining_work_plan.md (status)
+└── AURA_remaining_work_plan.md the test report, what was built, and what was found
 ```
 
 ## Limitations
