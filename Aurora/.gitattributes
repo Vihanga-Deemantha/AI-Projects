@@ -1,0 +1,4 @@
+# Files that are read by Linux tools (Docker builds) keep LF line endings, whatever
+# operating system they were checked out on. Everything else follows Git's defaults.
+Dockerfile      text eol=lf
+.dockerignore   text eol=lf

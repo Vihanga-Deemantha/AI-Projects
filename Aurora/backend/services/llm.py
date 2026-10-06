@@ -5,10 +5,11 @@ All LLM calls go through this module — never instantiate Groq() in a route dir
 from typing import Any
 
 # pyrefly: ignore [missing-import]
-from groq import Groq
+from groq import Groq, RateLimitError
 from backend.config import (
     GROQ_API_KEY,
     LLM_ANALYSIS_MODEL,
+    LLM_ANALYSIS_RETRIES,
     LLM_CONVERSATION_MODEL,
     LLM_REASONING_EFFORT,
 )
@@ -22,6 +23,15 @@ def get_client() -> Groq:
     if _client is None:
         _client = Groq(api_key=GROQ_API_KEY)
     return _client
+
+
+def is_rate_limited(exc: BaseException) -> bool:
+    """
+    True when the provider refused a call because we are over its rate limit (HTTP 429).
+    That is an expected, temporary condition when several learners practise at once on a
+    small plan, not a bug — callers report it gently instead of logging a stack trace.
+    """
+    return isinstance(exc, RateLimitError)
 
 
 def _reasoning_kwargs() -> dict:
@@ -71,8 +81,11 @@ def chat_json(
     Always validate the returned string with Pydantic before using it.
 
     Lower temperature (0.2) reduces variability in structured outputs.
+
+    This is the background analysis call, so it retries rate limits patiently
+    (LLM_ANALYSIS_RETRIES) where a live reply would rather fail fast.
     """
-    response = get_client().chat.completions.create(
+    response = get_client().with_options(max_retries=LLM_ANALYSIS_RETRIES).chat.completions.create(
         model=model or LLM_ANALYSIS_MODEL,
         messages=messages,
         temperature=temperature,

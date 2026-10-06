@@ -1,24 +1,29 @@
 """
-AURA Local Test Client — Phase 1
-Allows you to talk to AURA via your microphone and speakers,
-without needing the Next.js frontend.
+AURA Local Test Client
+Talk to AURA with your microphone and speakers from the terminal, without the
+Next.js frontend. Needs the extra packages in backend/requirements-local.txt.
 
 Prerequisites:
     - Docker running:  docker compose up -d
     - Server running:  uvicorn backend.main:app --reload
+    - An AURA account (sign up in the web app first)
 
 Usage:
-    python local_client.py
-    python local_client.py --voice alan --style irish --scenario interview
-    python local_client.py --voice ryan --style pirate
+    python local_client.py --email you@example.com          # asks for your password
+    python local_client.py --email you@example.com --voice alan --style irish --scenario interview
+
+Credentials can also come from AURA_EMAIL / AURA_PASSWORD, or pass an existing
+session token with --token / AURA_TOKEN. The valid --voice/--style/--scenario ids
+are listed at GET /api/config/options.
 """
 import argparse
 import base64
 import io
 import sys
 import tempfile
+import getpass
+import os
 import time
-import uuid
 import wave
 import queue
 import threading
@@ -36,7 +41,7 @@ import requests
 import sounddevice as sd
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-API_BASE = "http://localhost:8000"
+API_BASE = os.environ.get("AURA_API", "http://localhost:8000")
 SAMPLE_RATE = 16_000          # Hz — must match what Whisper expects
 BLOCK_SIZE = 512              # Samples per VAD chunk (~32ms at 16kHz)
 SILENCE_SECONDS = 0.6         # Stop recording after this much silence
@@ -44,19 +49,30 @@ MAX_RECORDING_S = 30          # Safety cap to avoid runaway recordings
 
 # ── CLI Args ───────────────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser(description="AURA local voice client")
-parser.add_argument("--voice", default="amy",
-                    choices=["amy", "ryan", "alan", "lessac"],
-                    help="TTS voice to use")
-parser.add_argument("--style", default="standard",
-                    choices=["standard", "australian", "irish", "scouse", "caribbean", "pirate"],
-                    help="Speaking style / English variety")
-parser.add_argument("--scenario", default="casual",
-                    choices=["casual", "interview", "travel", "debate", "university"],
-                    help="Conversation scenario")
-parser.add_argument("--user-id", default=None,
-                    help="User ID (auto-generated if not provided)")
+parser.add_argument("--voice", default="amy", help="companion / TTS voice id (see /api/config/options)")
+parser.add_argument("--style", default="standard", help="speaking style id")
+parser.add_argument("--scenario", default="casual", help="conversation scenario id")
+parser.add_argument("--email", default=os.environ.get("AURA_EMAIL"), help="your AURA account email")
+parser.add_argument("--token", default=os.environ.get("AURA_TOKEN"), help="an existing session token (skips the password)")
 args = parser.parse_args()
-USER_ID = args.user_id or str(uuid.uuid4())
+
+AUTH_HEADERS: dict = {}
+
+
+def authenticate() -> None:
+    """Signs in (or accepts --token) and sets the Authorization header for every request."""
+    if args.token:
+        AUTH_HEADERS["Authorization"] = f"Bearer {args.token}"
+        return
+    if not args.email:
+        print("[ERROR] Pass --email (or AURA_EMAIL), or --token. Sign up in the web app first.")
+        sys.exit(1)
+    password = os.environ.get("AURA_PASSWORD") or getpass.getpass(f"Password for {args.email}: ")
+    resp = requests.post(f"{API_BASE}/api/auth/login", json={"email": args.email, "password": password}, timeout=15)
+    if resp.status_code != 200:
+        print(f"[ERROR] Sign-in failed: {resp.json().get('detail', resp.status_code)}")
+        sys.exit(1)
+    AUTH_HEADERS["Authorization"] = f"Bearer {resp.json()['access_token']}"
 
 
 # ── VAD Setup ─────────────────────────────────────────────────────────────────
@@ -194,11 +210,11 @@ def start_session() -> str:
     resp = requests.post(
         f"{API_BASE}/api/conversation/start",
         data={
-            "user_id": USER_ID,
             "scenario": args.scenario,
             "style": args.style,
             "voice": args.voice,
         },
+        headers=AUTH_HEADERS,
         timeout=10,
     )
     resp.raise_for_status()
@@ -252,6 +268,7 @@ def send_audio_streaming(conversation_id: str, wav_path: str) -> dict:
             f"{API_BASE}/api/conversation/message-stream",
             data={"conversation_id": conversation_id},
             files={"audio_file": ("audio.wav", f, "audio/wav")},
+            headers=AUTH_HEADERS,
             stream=True,
             timeout=180,
         )
@@ -286,6 +303,9 @@ def send_audio_streaming(conversation_id: str, wav_path: str) -> dict:
                 result["timings"] = msg.get("timings", {})
                 print()  # newline after AURA's text
 
+            elif msg_type == "warning":
+                print(f"\n  [Note] {msg['message']}")
+
             elif msg_type == "error":
                 print(f"\n  [Error] {msg['message']}")
                 result["error"] = msg["message"]
@@ -311,30 +331,40 @@ def print_timings(timings: dict):
 
 seen_correction_ids = set()
 
-def fetch_and_print_feedback(conversation_id: str):
-    """Fetches recent grammar/vocab feedback and prints new items (Option B async flow)."""
-    try:
-        url = f"http://127.0.0.1:8000/api/analysis/conversation/{conversation_id}/recent?limit=5"
-        resp = requests.get(url, timeout=2.0)
-        if resp.status_code == 200:
-            corrections = resp.json().get("corrections", [])
-            new_corrections = [c for c in corrections if c["id"] not in seen_correction_ids]
-            
-            if new_corrections:
-                print("\n  [Feedback on your recent speech]")
-                for c in new_corrections:
-                    seen_correction_ids.add(c["id"])
-                    
-                    icon = "❌" if c.get("is_error") else "💡"
-                    category = c.get("category", "").title()
-                    subtype = c.get("subtype", "")
-                    
-                    print(f"  {icon} {category} ({subtype})")
-                    print(f"     You said: \"{c.get('original')}\"")
-                    print(f"     Better  : \"{c.get('correction')}\"")
-                    print(f"     Why     : {c.get('explanation')}\n")
-    except Exception as e:
-        pass # Silently ignore polling errors so we don't break the chat
+def fetch_and_print_feedback(conversation_id: str, wait_seconds: float = 0.0):
+    """
+    Prints grammar/vocab feedback not yet shown. If the server reports turns
+    still being analysed, waits up to `wait_seconds` for them (analysis takes a
+    couple of seconds, so the previous turn's feedback is normally ready by
+    the time you finish reading the reply).
+    """
+    deadline = time.time() + wait_seconds
+    while True:
+        try:
+            resp = requests.get(
+                f"{API_BASE}/api/analysis/conversation/{conversation_id}/recent?limit=10",
+                headers=AUTH_HEADERS, timeout=5.0,
+            )
+            if resp.status_code != 200:
+                return
+            body = resp.json()
+        except Exception:
+            return  # never let a polling hiccup break the chat
+
+        new_corrections = [c for c in body.get("corrections", []) if c["id"] not in seen_correction_ids]
+        if new_corrections:
+            print("\n  [Feedback on your recent speech]")
+            for c in new_corrections:
+                seen_correction_ids.add(c["id"])
+                icon = "❌" if c.get("is_error") else "💡"
+                print(f"  {icon} {c.get('category', '').title()} ({c.get('subtype', '')})")
+                print(f"     You said: \"{c.get('original')}\"")
+                print(f"     Better  : \"{c.get('correction')}\"")
+                print(f"     Why     : {c.get('explanation')}\n")
+        if body.get("pending", 0) > 0 and time.time() < deadline:
+            time.sleep(0.5)
+            continue
+        return
 
 
 # ── Main Conversation Loop ─────────────────────────────────────────────────────
@@ -342,11 +372,12 @@ if __name__ == "__main__":
     print()
     print("=" * 55)
     print("  AURA — AI English Speaking Coach")
-    print("  Local Voice Client — Phase 2")
+    print("  Local Voice Client")
     print("  Press Ctrl+C to end the session")
     print("=" * 55)
 
     check_server()
+    authenticate()
 
     print("\n[Starting new session...]")
     conversation_id = start_session()
@@ -378,7 +409,13 @@ if __name__ == "__main__":
             print()
 
         except KeyboardInterrupt:
-            print("\n\n[AURA] Session ended. Great practice! Goodbye!\n")
+            print("\n\n[AURA] Wrapping up...")
+            fetch_and_print_feedback(conversation_id, wait_seconds=8)   # the last turn's feedback
+            try:
+                requests.post(f"{API_BASE}/api/conversation/{conversation_id}/end", headers=AUTH_HEADERS, timeout=5)
+            except Exception:
+                pass
+            print("[AURA] Session ended. Great practice! Goodbye!\n")
             break
         except requests.exceptions.HTTPError as e:
             print(f"[ERROR] API error: {e.response.status_code} — {e.response.text}\n")

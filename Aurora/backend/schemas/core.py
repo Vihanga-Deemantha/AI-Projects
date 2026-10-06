@@ -2,9 +2,11 @@
 Pydantic schemas for API request/response validation.
 These are NOT database models — they define the API contract.
 """
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, StrictInt, model_validator
 from datetime import datetime
 from typing import Literal, Optional
+
+from backend.personalities import DIFFICULTY_LEVELS
 
 
 # ── Users ─────────────────────────────────────────────────────────────────────
@@ -56,6 +58,9 @@ class AuthUser(BaseModel):
     # password_hash/google_id directly, so those two can never leak here.
     has_password: bool = True
     google_linked: bool = False
+    email_verified: bool = False
+    # A difficulty level the learner pinned (1-5); None = adapt automatically.
+    difficulty_override: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -73,6 +78,25 @@ class UpdateProfileRequest(BaseModel):
     # schema never hand-duplicates the list of valid ids.
     preferred_voice: Optional[str] = Field(default=None, max_length=50)
     preferred_style: Optional[str] = Field(default=None, max_length=50)
+    # A tier of DIFFICULTY_LEVELS pins that level; an explicit null goes back to automatic.
+    # (Whether the key was SENT matters, so the router checks `model_fields_set`.)
+    # Strict, so `true` or "3" is refused instead of quietly becoming a level.
+    difficulty_override: Optional[StrictInt] = Field(default=None, ge=min(DIFFICULTY_LEVELS), le=max(DIFFICULTY_LEVELS))
+
+
+class VerifyEmailRequest(BaseModel):
+    otp: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class DeleteAccountRequest(BaseModel):
+    # The account's own email, typed back as a deliberate-action check.
+    confirm_email: EmailStr
+    # Required for accounts that have a password; Google-only accounts omit it.
+    password: Optional[str] = None
+
+
+class GoogleExchangeRequest(BaseModel):
+    code: str = Field(min_length=10, max_length=2000)
 
 
 class ChangePasswordRequest(BaseModel):
@@ -130,13 +154,33 @@ class MessageResponse(BaseModel):
 # it is written to the corrections table — the model's output is untrusted input.
 
 class CorrectionItem(BaseModel):
+    """
+    One piece of feedback on a spoken turn. Three kinds:
+      mistake     is_error=True                    something wrong
+      suggestion  is_error=False                   right, but could be better
+      praise      is_positive=True (is_error=False) notably good use of English
+    """
     category: Literal["grammar", "vocabulary", "naturalness"]
     subtype: str
-    original: str
-    correction: str
-    explanation: str
+    original: str = Field(min_length=1)
+    correction: str = ""
+    explanation: str = Field(min_length=1)
     is_error: bool = True
+    is_positive: bool = False
     severity: Literal["high", "medium", "low"] = "medium"
+
+    @model_validator(mode="after")
+    def _consistent(self):
+        if self.is_positive:
+            # Praise is never an error, never "high" severity, and has no fix to
+            # offer: its "correction" is simply the good wording itself.
+            self.is_error = False
+            self.severity = "low"
+            if not self.correction.strip():
+                self.correction = self.original
+        elif not self.correction.strip():
+            raise ValueError("a mistake or suggestion needs the better wording in `correction`")
+        return self
 
 
 class AnalysisResult(BaseModel):
@@ -146,9 +190,11 @@ class AnalysisResult(BaseModel):
 # ── Health ────────────────────────────────────────────────────────────────────
 
 class HealthResponse(BaseModel):
-    status: str
+    status: str          # "ok" | "degraded" (the endpoint answers 503 when degraded)
     environment: str
-    database: str        # "connected" | "error: ..."
-    groq_api: str        # "connected" | "error: ..."
+    database: str        # "connected" | "error: <ErrorType>"
+    migrations: str      # "up to date" | "behind" | "unknown" | "error: <ErrorType>"
+    groq_api: str        # "skipped" | "connected" | "rate limited" | "error: <ErrorType>"
+    speech: dict         # {"stt": {provider, ready}, "voices": {installed, total, loaded, missing}}
     llm_conversation_model: str
     llm_analysis_model: str

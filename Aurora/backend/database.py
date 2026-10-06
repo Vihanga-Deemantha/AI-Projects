@@ -4,12 +4,13 @@ Use get_db() as a FastAPI dependency in route handlers.
 """
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from backend.config import DATABASE_URL
+from backend.config import DATABASE_URL, SQL_ECHO
 
-# echo=True logs all SQL in development — very useful for debugging
+# SQL statement logging is opt-in (SQL_ECHO=1): it is extremely noisy and it
+# writes emails and transcripts into the logs.
 engine = create_engine(
     DATABASE_URL,
-    echo=True,
+    echo=SQL_ECHO,
     pool_pre_ping=True,   # Test connections before use (handles DB restarts)
     pool_size=5,
     max_overflow=10,

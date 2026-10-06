@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { faceSrc, getCompanion } from "@/lib/characters";
 import UserAvatar from "@/components/UserAvatar";
+import SpeechMetrics from "@/components/SpeechMetrics";
 
 /**
  * Scrolling transcript — the companion's bubbles carry their headshot, and
@@ -10,7 +11,7 @@ import UserAvatar from "@/components/UserAvatar";
  * scrolls its OWN container to the latest turn (not the page, which
  * scrollIntoView would also yank around).
  */
-export default function ConversationView({ messages, companionId, thinking, scenarioLabel, user }) {
+export default function ConversationView({ messages, companionId, style, thinking, scenarioLabel, user }) {
   const scrollRef = useRef(null);
   const companion = getCompanion(companionId);
 
@@ -33,7 +34,7 @@ export default function ConversationView({ messages, companionId, thinking, scen
       ) : (
         <div ref={scrollRef} className="flex max-h-115 min-h-50 flex-col gap-4 overflow-y-auto p-5">
           {messages.map((m) => (
-            <Bubble key={m.id} message={m} companion={companion} user={user} />
+            <Bubble key={m.id} message={m} companion={companion} style={style} user={user} />
           ))}
           {thinking && (
             <div className="flex items-end gap-2.5">
@@ -55,7 +56,7 @@ export default function ConversationView({ messages, companionId, thinking, scen
   );
 }
 
-function Bubble({ message, companion, user }) {
+function Bubble({ message, companion, style, user }) {
   const isUser = message.role === "user";
   return (
     <div className={`flex items-end gap-2.5 ${isUser ? "flex-row-reverse" : ""}`}>
@@ -64,15 +65,18 @@ function Bubble({ message, companion, user }) {
       ) : (
         <Face id={companion.id} name={companion.name} expr={message.pending ? "speaking" : "neutral"} />
       )}
-      <div
-        className={`relative max-w-[76%] px-4.25 pt-3.25 pb-5.5 text-[14.5px] leading-[1.55] ${
-          isUser ? "bg-brand-soft" : "bg-field"
-        } ${message.pending ? "opacity-70" : ""}`}
-      >
-        {message.text || (message.pending ? "…" : "")}
-        {message.timestamp && (
-          <span className="absolute right-3 bottom-1.5 text-[10px] text-soft">{message.timestamp}</span>
-        )}
+      <div className={`flex max-w-[76%] min-w-0 flex-col ${isUser ? "items-end" : "items-start"}`}>
+        <div
+          className={`relative px-4.25 pt-3.25 pb-5.5 text-[14.5px] leading-[1.55] ${
+            isUser ? "bg-brand-soft" : "bg-field"
+          } ${message.pending ? "opacity-70" : ""}`}
+        >
+          {message.text || (message.pending ? "…" : "")}
+          {message.timestamp && (
+            <span className="absolute right-3 bottom-1.5 text-[10px] text-soft">{message.timestamp}</span>
+          )}
+        </div>
+        {isUser && <SpeechMetrics fluency={message.fluency} clarity={message.clarity} voice={companion.id} style={style} />}
       </div>
     </div>
   );

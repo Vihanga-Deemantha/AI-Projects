@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getStoredUser, logout, onUserUpdated } from "@/lib/auth";
+import { getMe, getStoredUser, logout, onUserUpdated } from "@/lib/auth";
 import { faceSrc, getCompanion } from "@/lib/characters";
 import ThemeToggle from "@/components/ThemeToggle";
 import UserAvatar from "@/components/UserAvatar";
@@ -35,7 +35,13 @@ export default function AppSidebar() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is client-only; reading it during render would mismatch SSR output
     setUser(getStoredUser());
-    return onUserUpdated(setUser);
+    const unsubscribe = onUserUpdated(setUser);
+    // Refresh the cached copy from the server (it broadcasts through
+    // onUserUpdated), so fields added since this browser last signed in —
+    // e.g. email_verified — are present. A failure is harmless: a 401 already
+    // redirects to /login by itself.
+    getMe().catch(() => {});
+    return unsubscribe;
   }, []);
 
   function handleLogout() {
@@ -100,7 +106,7 @@ export default function AppSidebar() {
           <NavItem href="/practice" active={pathname === "/practice"}>Practice</NavItem>
           <NavItem href="/history" active={pathname.startsWith("/history")}>History</NavItem>
           <NavItem href="/profile" active={pathname === "/profile"}>Profile</NavItem>
-          <NavItem disabled note="Soon">Progress</NavItem>
+          <NavItem href="/progress" active={pathname === "/progress"}>Progress</NavItem>
         </nav>
 
         <div className="mt-auto flex flex-col gap-3">
@@ -119,6 +125,16 @@ export default function AppSidebar() {
               </div>
             </div>
           </div>
+
+          {user && user.has_password && user.email_verified === false && (
+            <Link
+              href="/verify-email"
+              className="border border-brand bg-brand-soft px-3.5 py-3 text-[11.5px] leading-snug transition hover:bg-brand hover:text-on-brand"
+            >
+              <span className="block text-[9.5px] font-bold tracking-[0.18em] uppercase">Verify your email</span>
+              <span className="mt-1 block">Confirm it to protect your account.</span>
+            </Link>
+          )}
 
           <ThemeToggle className="w-full" />
 

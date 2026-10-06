@@ -50,6 +50,7 @@ export function logout() {
 
 /** Pages that work without a session; an expired token must not bounce these. */
 const PUBLIC_PATHS = ["/", "/login", "/signup", "/forgot-password"];
+// (/verify-email needs a session, so an expired token there does go back to /login.)
 
 /**
  * Called when the server rejects our token (expired, tampered, or the account
@@ -168,8 +169,11 @@ export async function getMe() {
   return user;
 }
 
-/** Sends only the fields provided (undefined keys are dropped by JSON.stringify). */
-export async function updateProfile({ displayName, bio, preferredVoice, preferredStyle }) {
+/**
+ * Sends only the fields provided (undefined keys are dropped by JSON.stringify).
+ * `difficultyOverride` is a level (1-5) to pin, or `null` to go back to automatic.
+ */
+export async function updateProfile({ displayName, bio, preferredVoice, preferredStyle, difficultyOverride }) {
   const user = await authFetchJson("/api/auth/profile", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -178,6 +182,7 @@ export async function updateProfile({ displayName, bio, preferredVoice, preferre
       bio,
       preferred_voice: preferredVoice,
       preferred_style: preferredStyle,
+      difficulty_override: difficultyOverride,
     }),
   });
   syncUser(user);
@@ -193,12 +198,46 @@ export async function uploadAvatar(file) {
   return avatar_url;
 }
 
-export function changePassword({ currentPassword, newPassword }) {
-  return authFetchJson("/api/auth/change-password", {
+/**
+ * Changing a password ends every OTHER session on the server (the token
+ * version is bumped), and the response carries a fresh token for this one —
+ * persist it, or the next request would be rejected and log the user out.
+ */
+export async function changePassword({ currentPassword, newPassword }) {
+  const data = await authFetchJson("/api/auth/change-password", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
   });
+  persistSession(data);
+  syncUser(data.user);
+  return data.user;
+}
+
+/** Confirms the signed-in user's email with the code we emailed them. */
+export async function verifyEmail(otp) {
+  const user = await authFetchJson("/api/auth/verify-email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ otp }),
+  });
+  syncUser(user);
+  return user;
+}
+
+/** Emails a fresh verification code (the server enforces a 60s cooldown). */
+export async function resendVerification() {
+  await authFetchJson("/api/auth/resend-verification", { method: "POST" });
+}
+
+/** Permanently deletes the account, then clears the local session. */
+export async function deleteAccount({ confirmEmail, password }) {
+  await authFetchJson("/api/auth/account", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm_email: confirmEmail, password: password || null }),
+  });
+  logout();
 }
 
 export async function forgotPassword(email) {
@@ -218,16 +257,15 @@ export function verifyOTP({ email, otp, newPassword }) {
 }
 
 /**
- * `link: true` requests "connect Google to my current account" rather than
- * a plain sign-in — the backend needs the caller's identity to do that
- * safely (so it can refuse a mismatched Google account instead of silently
- * switching the active session), and a top-level redirect can't carry an
- * Authorization header, so the token rides along as a query param instead.
+ * The Google sign-in URL (used as the buttons' href; the click handler below
+ * does the real work). Connecting Google to an existing account needs the
+ * caller's identity, and a top-level redirect can't carry an Authorization
+ * header — but a session token must never go in a URL either (history, logs,
+ * referrers). So that flow first asks the server for a short-lived link code
+ * (see startGoogleAuth) and puts only that in the URL.
  */
-export function getGoogleAuthUrl({ link = false } = {}) {
-  if (!link) return `${API_BASE}/api/auth/google`;
-  const token = getToken();
-  return `${API_BASE}/api/auth/google?link_token=${encodeURIComponent(token || "")}`;
+export function getGoogleAuthUrl() {
+  return `${API_BASE}/api/auth/google`;
 }
 
 /**
@@ -236,6 +274,9 @@ export function getGoogleAuthUrl({ link = false } = {}) {
  * user on the browser's connection-refused page. Probe the server first and
  * hand a readable message to `onError` instead. `no-cors` keeps the probe
  * independent of CORS config — only "reachable or not" matters here.
+ *
+ * With `link: true` ("connect Google to my account"), it fetches the link code
+ * first and navigates with that.
  */
 export async function startGoogleAuth(event, { link = false, onError } = {}) {
   event.preventDefault();
@@ -245,7 +286,19 @@ export async function startGoogleAuth(event, { link = false, onError } = {}) {
     onError?.("Can't reach the AURA server right now. Please try again in a moment.");
     return;
   }
-  window.location.assign(getGoogleAuthUrl({ link }));
+
+  if (!link) {
+    window.location.assign(getGoogleAuthUrl());
+    return;
+  }
+  try {
+    const { link_code } = await authFetchJson("/api/auth/google/link-code", { method: "POST" });
+    const url = `${getGoogleAuthUrl()}?link_code=${encodeURIComponent(link_code)}`;
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- the API server's OAuth endpoint (another origin), not a Next.js page
+    window.location.assign(url);
+  } catch (err) {
+    onError?.(err.message || "Couldn't start connecting Google. Please try again.");
+  }
 }
 
 export async function disconnectGoogle() {
@@ -255,24 +308,31 @@ export async function disconnectGoogle() {
 }
 
 /**
- * Parses ?token=...&user=...&next=... from the current URL (set by the
- * backend's Google OAuth redirect on success — failures redirect straight to
- * /login or /profile with ?error= instead of coming through here), persists
- * the session, and strips those params from the address bar. `next` is
- * "/practice" after a login/signup and "/profile" after linking Google to
- * an already-logged-in account. Returns { user: null, next } if the URL
- * doesn't carry a valid token/user.
+ * Finishes a Google sign-in. The backend's callback redirects here with
+ * ?code=...&next=... (failures redirect straight to /login with ?error=
+ * instead); the code is a single-use, 2-minute credential, not a session, so
+ * the real token travels in the response body of a POST rather than in a URL.
+ * Strips the params from the address bar first, persists the session, and
+ * resolves to { user, next } — or { user: null, next } if the code is missing,
+ * expired or already used.
+ *
+ * Call it once per page load (the code can only be redeemed once).
  */
-export function handleGoogleCallback() {
+export async function completeGoogleSignIn() {
   const params = new URLSearchParams(window.location.search);
-  const token = params.get("token");
-  const userJson = params.get("user");
+  const code = params.get("code");
   const next = params.get("next") || "/practice";
   window.history.replaceState({}, "", window.location.pathname);
 
-  if (!token || !userJson) return { user: null, next };
+  if (!code) return { user: null, next };
   try {
-    return { user: persistSession({ access_token: token, user: JSON.parse(userJson) }), next };
+    const res = await fetch(`${API_BASE}/api/auth/google/exchange`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    if (!res.ok) return { user: null, next };
+    return { user: persistSession(await res.json()), next };
   } catch {
     return { user: null, next };
   }

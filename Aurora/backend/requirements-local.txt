@@ -1,0 +1,9 @@
+# Extra packages for the optional terminal client (local_client.py), which uses
+# your microphone and speakers and detects the end of your speech with Silero VAD.
+#   pip install -r backend/requirements.txt -r backend/requirements-local.txt
+-r requirements.txt
+sounddevice==0.5.6
+soundfile==0.14.0
+torch==2.14.0
+torchaudio==2.11.0
+silero-vad==6.2.1

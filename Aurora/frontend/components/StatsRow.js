@@ -1,12 +1,14 @@
 "use client";
 
-/** 3 metric cards for the *current* session (not lifetime stats). */
-export default function StatsRow({ turns, sessionSeconds, correctionsCount }) {
+/** Metric cards for the *current* session (not lifetime stats). */
+export default function StatsRow({ turns, sessionSeconds, correctionsCount, fluencyScore = null, clarityScore = null }) {
   return (
     <div className="flex flex-wrap">
       <StatCard value={turns} label="Turns" />
       <StatCard value={formatDuration(sessionSeconds)} label="Elapsed" />
       <StatCard value={correctionsCount} label="Corrections" />
+      <StatCard value={fluencyScore ?? "—"} label="Fluency" />
+      <StatCard value={clarityScore ?? "—"} label="Clarity" />
     </div>
   );
 }

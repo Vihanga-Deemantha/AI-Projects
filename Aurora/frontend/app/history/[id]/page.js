@@ -8,6 +8,7 @@ import AppSidebar from "@/components/AppSidebar";
 import Sprite from "@/components/Sprite";
 import UserAvatar from "@/components/UserAvatar";
 import { CorrectionItem } from "@/components/CorrectionsPanel";
+import SpeechMetrics from "@/components/SpeechMetrics";
 import { getSession } from "@/lib/api";
 import { getStoredUser } from "@/lib/auth";
 import { faceSrc, getCompanion, sceneLabel, spriteSrc, styleLabel } from "@/lib/characters";
@@ -82,6 +83,7 @@ function SessionDetail() {
             <div className="absolute inset-x-5 top-5 z-4">
               <div className="text-[9.5px] font-bold tracking-[0.2em] text-soft uppercase">
                 {formatDate(session.started_at)} · with {who.name}
+                {session.difficulty ? ` · ${session.difficulty.label} level` : ""}
               </div>
               <h1 className="mt-2 font-display text-[28px] leading-[1.05] font-bold">
                 {sceneLabel(session.scenario)} · {styleLabel(session.style)}
@@ -92,10 +94,24 @@ function SessionDetail() {
           <div className="flex min-w-0 flex-col gap-5.5">
             <div className="flex flex-wrap">
               <Figure n={session.turn_count} label="Turns" />
+              {session.overall_score != null && <Figure n={session.overall_score} label="Score" />}
               <Figure n={session.correction_count} label="Corrections" />
+              {session.praise_count > 0 && <Figure n={session.praise_count} label="Praised" />}
+              <Figure n={session.avg_fluency ?? "—"} label="Fluency" />
+              <Figure n={session.avg_clarity ?? "—"} label="Clarity" />
               <Figure n={formatDuration(session.duration_seconds)} label="Length" />
               <Figure n={styleLabel(session.style)} label="Style" small />
             </div>
+
+            {session.is_complete && session.turn_count > 0 && (
+              <Link
+                href={`/history/${session.id}/report`}
+                className="flex items-center justify-between gap-3 border border-brand bg-brand-soft px-5 py-3.5 text-[11px] font-bold tracking-[0.16em] uppercase transition hover:bg-brand hover:text-on-brand"
+              >
+                <span>Session report</span>
+                <span aria-hidden="true">&rarr;</span>
+              </Link>
+            )}
 
             <div className="border border-panel-border bg-panel">
               <div className="border-b border-panel-border px-5 py-3.75 text-[10px] font-bold tracking-[0.2em] text-soft uppercase">Transcript</div>
@@ -104,7 +120,7 @@ function SessionDetail() {
               ) : (
                 <div className="flex flex-col gap-4 p-5">
                   {session.messages.map((m) => (
-                    <Turn key={m.id} message={m} who={who} user={user} />
+                    <Turn key={m.id} message={m} who={who} user={user} speakingStyle={session.style} />
                   ))}
                 </div>
               )}
@@ -125,7 +141,7 @@ function Figure({ n, label, small }) {
   );
 }
 
-function Turn({ message, who, user }) {
+function Turn({ message, who, user, speakingStyle }) {
   const isUser = message.role === "user";
   return (
     <div>
@@ -140,8 +156,11 @@ function Turn({ message, who, user }) {
             style={{ backgroundImage: `url('${faceSrc(who.id, "neutral")}')` }}
           />
         )}
-        <div className={`max-w-[76%] px-4.25 py-3.25 text-[14.5px] leading-[1.55] ${isUser ? "bg-brand-soft" : "bg-field"}`}>
-          {message.content}
+        <div className={`flex max-w-[76%] min-w-0 flex-col ${isUser ? "items-end" : "items-start"}`}>
+          <div className={`px-4.25 py-3.25 text-[14.5px] leading-[1.55] ${isUser ? "bg-brand-soft" : "bg-field"}`}>
+            {message.content}
+          </div>
+          {isUser && <SpeechMetrics fluency={message.fluency} clarity={message.clarity} voice={who.id} style={speakingStyle} detailed />}
         </div>
       </div>
 

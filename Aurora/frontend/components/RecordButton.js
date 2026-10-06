@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const CANDIDATE_MIME_TYPES = [
   "audio/webm;codecs=opus",
@@ -24,6 +24,10 @@ function pickMimeType() {
 // instant, friendly message instead of a round trip that fails anyway.
 const MIN_RECORDING_MS = 400;
 
+// A single spoken turn is capped at a minute: the server rejects bigger uploads
+// anyway, and a held button that never got its pointer-up must not record forever.
+const MAX_RECORDING_MS = 60_000;
+
 /**
  * Push-to-talk bar. Hold to record (mouse, touch or pen), release to send.
  * Records via MediaRecorder — produces webm/opus (or ogg/opus on Firefox),
@@ -37,11 +41,40 @@ const MIN_RECORDING_MS = 400;
 export default function RecordButton({ disabled, onRecordingComplete, onAnalyser }) {
   const [recording, setRecording] = useState(false);
   const [requesting, setRequesting] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const streamRef = useRef(null);
   const audioCtxRef = useRef(null);
   const startedAtRef = useRef(0);
+  const maxTimerRef = useRef(null);
+  // Whether the pointer is still down. Opening the mic takes a moment (and can
+  // wait on a permission prompt); if the user lets go in the meantime there is
+  // nothing to stop yet, so the release has to be remembered and applied the
+  // instant recording begins.
+  const pointerHeldRef = useRef(false);
+
+  // Live "0:07" readout while recording.
+  useEffect(() => {
+    if (!recording) return;
+    const id = setInterval(() => setElapsedMs(Date.now() - startedAtRef.current), 250);
+    return () => clearInterval(id);
+  }, [recording]);
+
+  // Never leave the microphone open if the button unmounts mid-recording.
+  useEffect(
+    () => () => {
+      clearTimeout(maxTimerRef.current);
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state === "recording") {
+        recorder.onstop = null;
+        recorder.stop();
+      }
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      audioCtxRef.current?.close().catch(() => {});
+    },
+    []
+  );
 
   async function startRecording() {
     if (disabled || recording || requesting) return;
@@ -86,11 +119,18 @@ export default function RecordButton({ disabled, onRecordingComplete, onAnalyser
 
       mediaRecorderRef.current = recorder;
       recorder.start();
-      // eslint-disable-next-line react-hooks/purity -- this runs inside an event handler (mousedown/touchstart), never during render
       startedAtRef.current = Date.now();
+      setElapsedMs(0);
       setRecording(true);
+      maxTimerRef.current = setTimeout(stopRecording, MAX_RECORDING_MS);
+
+      // Released while the mic was still opening: stop straight away (the
+      // too-short check then reports it, rather than recording unattended).
+      if (!pointerHeldRef.current) stopRecording();
     } catch (err) {
       console.error("[RecordButton] mic access failed:", err);
+      cleanupStream();
+      onAnalyser?.(null);
       onRecordingComplete?.(null, err);
     } finally {
       setRequesting(false);
@@ -98,8 +138,12 @@ export default function RecordButton({ disabled, onRecordingComplete, onAnalyser
   }
 
   function stopRecording() {
-    if (!recording) return;
-    mediaRecorderRef.current?.stop();
+    clearTimeout(maxTimerRef.current);
+    // Read the recorder itself rather than React state: this is also called from
+    // a timer and from inside startRecording, where `recording` would be stale.
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state !== "recording") return;
+    recorder.stop();
     setRecording(false);
   }
 
@@ -110,7 +154,19 @@ export default function RecordButton({ disabled, onRecordingComplete, onAnalyser
     audioCtxRef.current = null;
   }
 
-  const label = recording ? "Release to send" : requesting ? "Starting mic…" : "Hold to speak";
+  function release() {
+    pointerHeldRef.current = false;
+    stopRecording();
+  }
+
+  const seconds = Math.floor(elapsedMs / 1000);
+  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  const nearLimit = recording && elapsedMs > MAX_RECORDING_MS - 10_000;
+  const label = recording
+    ? `Release to send · ${clock}${nearLimit ? ` (max ${MAX_RECORDING_MS / 1000}s)` : ""}`
+    : requesting
+      ? "Starting mic…"
+      : "Hold to speak";
 
   return (
     <button
@@ -126,10 +182,11 @@ export default function RecordButton({ disabled, onRecordingComplete, onAnalyser
       // to do.
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture?.(e.pointerId);
+        pointerHeldRef.current = true;
         startRecording();
       }}
-      onPointerUp={stopRecording}
-      onPointerCancel={stopRecording}
+      onPointerUp={release}
+      onPointerCancel={release}
       className={`flex h-14 w-full touch-none items-center justify-center gap-3 text-[11px] font-bold tracking-[0.2em] uppercase transition select-none focus:outline-none focus-visible:ring-4 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-50 ${
         recording ? "cursor-pointer bg-brand text-on-brand" : "cursor-pointer bg-foreground text-background hover:bg-brand hover:text-on-brand"
       }`}

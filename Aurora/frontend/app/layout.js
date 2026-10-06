@@ -9,10 +9,13 @@ const playfair = Playfair_Display({
   display: "swap",
 });
 
+// Plus Jakarta Sans is a *variable* font, so next/font wants no `weight` at all
+// (every weight 200–800 is already in the one file). Passing an array of
+// weights — which is only valid for static fonts — makes `next build` fail under
+// Turbopack with "next/font/google queries have exactly one entry".
 const plusJakartaSans = Plus_Jakarta_Sans({
   variable: "--font-jakarta",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
   display: "swap",
 });
 

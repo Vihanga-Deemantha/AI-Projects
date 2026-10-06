@@ -15,19 +15,35 @@ const LENGTH = 6;
 export default function OTPInput({ onComplete, error, disabled }) {
   const [digits, setDigits] = useState(Array(LENGTH).fill(""));
   const inputRefs = useRef([]);
+  // The source of truth for the digits typed so far. State alone isn't enough:
+  // several keystrokes (fast typing, autofill, a paste handler) can arrive
+  // before React re-renders, and each would then build its update from the
+  // same stale array and overwrite the others.
+  const digitsRef = useRef(Array(LENGTH).fill(""));
 
   useEffect(() => {
     inputRefs.current[0]?.focus();
   }, []);
 
-  function setDigitAt(index, value) {
-    const next = [...digits];
-    next[index] = value;
+  function commit(next) {
+    digitsRef.current = next;
     setDigits(next);
-    const otp = next.join("");
-    if (otp.length === LENGTH && next.every((d) => d !== "")) {
-      onComplete?.(otp);
-    }
+    if (next.every((d) => d !== "")) onComplete?.(next.join(""));
+  }
+
+  function setDigitAt(index, value) {
+    const next = [...digitsRef.current];
+    next[index] = value;
+    commit(next);
+  }
+
+  /** Spreads several digits across the boxes starting at `from` (paste, SMS autofill). */
+  function fillFrom(from, digitsToPlace) {
+    const next = [...digitsRef.current];
+    const placed = digitsToPlace.slice(0, LENGTH - from);
+    for (let i = 0; i < placed.length; i++) next[from + i] = placed[i];
+    inputRefs.current[Math.min(from + placed.length, LENGTH - 1)]?.focus();
+    commit(next);
   }
 
   function handleChange(index, e) {
@@ -36,14 +52,20 @@ export default function OTPInput({ onComplete, error, disabled }) {
       setDigitAt(index, "");
       return;
     }
+    // More than two digits arriving at once is a pasted/auto-filled code (a
+    // phone's one-time-code suggestion lands in the first box in one go), not
+    // someone typing over a box that already had a digit.
+    if (raw.length > 2) {
+      fillFrom(index, raw);
+      return;
+    }
     // Typing a digit when one is already there (cursor at start) replaces it.
-    const digit = raw.slice(-1);
-    setDigitAt(index, digit);
+    setDigitAt(index, raw.slice(-1));
     if (index < LENGTH - 1) inputRefs.current[index + 1]?.focus();
   }
 
   function handleKeyDown(index, e) {
-    if (e.key === "Backspace" && !digits[index] && index > 0) {
+    if (e.key === "Backspace" && !digitsRef.current[index] && index > 0) {
       inputRefs.current[index - 1]?.focus();
       setDigitAt(index - 1, "");
     }
@@ -53,12 +75,9 @@ export default function OTPInput({ onComplete, error, disabled }) {
     e.preventDefault();
     const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, LENGTH);
     if (!pasted) return;
-    const next = Array(LENGTH).fill("");
-    for (let i = 0; i < pasted.length; i++) next[i] = pasted[i];
-    setDigits(next);
-    const focusIndex = Math.min(pasted.length, LENGTH - 1);
-    inputRefs.current[focusIndex]?.focus();
-    if (pasted.length === LENGTH) onComplete?.(pasted);
+    // A pasted code always replaces whatever was typed, starting from the first box.
+    digitsRef.current = Array(LENGTH).fill("");
+    fillFrom(0, pasted);
   }
 
   return (
@@ -71,7 +90,10 @@ export default function OTPInput({ onComplete, error, disabled }) {
           }}
           type="text"
           inputMode="numeric"
-          maxLength={1}
+          autoComplete={i === 0 ? "one-time-code" : "off"}
+          // Room for the rest of the code from this box on, so an autofilled
+          // code isn't truncated to one character by the browser.
+          maxLength={LENGTH - i}
           value={digit}
           disabled={disabled}
           aria-label={`Digit ${i + 1}`}

@@ -1,14 +1,25 @@
 """
 Conversation API endpoints.
 
-POST /api/conversation/start        — create a new session record in the DB
-POST /api/conversation/message      — the core voice loop (audio in, audio out), batch
-POST /api/conversation/message-stream — streaming voice loop, NDJSON response
+POST /api/conversation/start           — create a new session record in the DB
+POST /api/conversation/{id}/end        — close a session
+POST /api/conversation/message-stream  — the voice loop (audio in, NDJSON out)
+
+The voice loop streams newline-delimited JSON events:
+    {"type": "transcript",  "text": "...", "message_id": "..."}
+    {"type": "metrics",     "message_id": "...", "fluency": {...} | null}   (how they spoke)
+    {"type": "audio_chunk", "index": N, "text": "...", "data": "<b64 WAV>", "tts_ms": N}
+    {"type": "warning",     "message": "..."}      (non-fatal, e.g. one sentence couldn't be spoken)
+    {"type": "error",       "message": "..."}
+    {"type": "done",        "full_reply": "...", "timings": {...}}
+
+CRITICAL: every code path MUST end with a {"type": "done"} line. Without it the
+chunked HTTP stream never sends its final terminator and the client hangs.
 """
 import asyncio
 import base64
 import json
-import queue as queue_module
+import logging
 import tempfile
 import threading
 import time
@@ -16,16 +27,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # pyrefly: ignore [missing-import]
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 # pyrefly: ignore [missing-import]
 from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 # pyrefly: ignore [missing-import]
 from sqlalchemy.orm import Session
 
+from backend import taxonomy
+from backend.config import MAX_AUDIO_BYTES, MAX_AUDIO_SECONDS
 from backend.database import get_db
 from backend.dependencies import get_current_user
-from backend.models.core import Conversation, Message, User
-from backend.services.analysis import run_async_analysis
+from backend.models.core import Conversation, User
 from backend.personalities import (
     DEFAULT_SCENARIO,
     DEFAULT_STYLE,
@@ -35,12 +48,20 @@ from backend.personalities import (
     VOICES,
     build_system_prompt,
 )
-from backend.services import llm, stt, tts
+from backend.services import background, difficulty, llm, reports, speech_metrics, stt, tts, turns
+from backend.services.analysis import run_async_analysis
+from backend.services.ratelimit import VOICE_TURN_PER_USER, enforce
+
+logger = logging.getLogger("aura.conversation")
 
 router = APIRouter(prefix="/api/conversation", tags=["conversation"])
 
+# No LLM token for this long means the provider has stalled.
+LLM_TOKEN_TIMEOUT_SECONDS = 30.0
+_ALLOWED_AUDIO_SUFFIXES = {".webm", ".wav", ".ogg", ".mp3", ".m4a", ".mp4", ".flac"}
 
-# ── Start Session ─────────────────────────────────────────────────────────────
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _owned_conversation(conversation_id: str, user: User, db: Session) -> Conversation:
     """
@@ -59,11 +80,93 @@ def _owned_conversation(conversation_id: str, user: User, db: Session) -> Conver
     return conversation
 
 
+def _event(**fields) -> str:
+    return json.dumps(fields) + "\n"
+
+
+async def _save_upload(upload: UploadFile) -> tuple[str, int]:
+    """
+    Copies the upload to a temp file, enforcing MAX_AUDIO_BYTES while reading so
+    an oversized (or endless) body is cut off instead of being read into memory.
+    Returns (path, size_in_bytes). The caller owns deleting the file.
+    """
+    suffix = Path(upload.filename or "audio.webm").suffix.lower()
+    if suffix not in _ALLOWED_AUDIO_SUFFIXES:
+        suffix = ".webm"
+
+    total = 0
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        while chunk := await upload.read(64 * 1024):
+            total += len(chunk)
+            if total > MAX_AUDIO_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"That recording is too large (limit {MAX_AUDIO_BYTES // (1024 * 1024)} MB).",
+                )
+            tmp.write(chunk)
+    except BaseException:
+        tmp.close()
+        Path(tmp.name).unlink(missing_ok=True)
+        raise
+    tmp.close()
+    return tmp.name, total
+
+
+async def _llm_tokens(messages: list, cancel: threading.Event):
+    """
+    Async generator over LLM tokens. The (blocking) Groq stream runs in its own
+    thread and hands tokens over through an asyncio.Queue, so waiting for the
+    next token never occupies a thread-pool worker (a per-token
+    asyncio.to_thread(queue.get) would let a handful of slow streams starve the
+    pool that STT and TTS share).
+    """
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    end = object()
+
+    def put(item) -> None:
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, item)
+        except RuntimeError:
+            pass  # loop already closed (server shutting down)
+
+    def produce() -> None:
+        try:
+            for token in llm.chat_stream(messages, max_tokens=400):
+                if cancel.is_set():
+                    break
+                put(token)
+        except Exception as exc:  # delivered to the consumer, which reports it
+            put(exc)
+        finally:
+            put(end)
+
+    threading.Thread(target=produce, daemon=True, name="llm-stream").start()
+    try:
+        while True:
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=LLM_TOKEN_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError as exc:
+                raise TimeoutError("The language model stopped responding") from exc
+            if item is end:
+                return
+            if isinstance(item, Exception):
+                raise item
+            yield str(item)
+    finally:
+        cancel.set()  # client went away / we're done: stop the producer between tokens
+
+
+# ── Start / end a session ─────────────────────────────────────────────────────
+
 @router.post("/start")
 def start_conversation(
+    background_tasks: BackgroundTasks,
     scenario: str = Form(default=DEFAULT_SCENARIO),
     style: str = Form(default=DEFAULT_STYLE),
     voice: str = Form(default=DEFAULT_VOICE),
+    focus: str | None = Form(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -72,7 +175,19 @@ def start_conversation(
 
     The owner comes from the verified JWT — never from the request body, which
     previously let any caller claim any user_id (and auto-created that user).
+
+    `focus` ("grammar:past_tense") optionally steers the conversation toward a
+    weakness (see GET /api/practice/today); it must name a real subtype.
+
+    The session's difficulty (the learner's pinned level, else the one their recent
+    scores call for) is fixed here and kept for the whole session.
+
+    The style brings an accent, so the companion must have a voice for it (see
+    personalities.voice_for): a pair with none is refused with an explanation, and the
+    model that holds the voice is loaded in the background so the first reply isn't slow.
     """
+    if focus and taxonomy.parse_focus(focus) is None:
+        raise HTTPException(status_code=400, detail=f"Unknown practice focus: {focus}")
     # Reject unknown ids up front; otherwise a bad voice only blows up later,
     # mid-conversation, as a TTS error.
     for value, allowed, what in (
@@ -82,16 +197,25 @@ def start_conversation(
     ):
         if value not in allowed:
             raise HTTPException(status_code=400, detail=f"Unknown {what}: {value}")
+    if not tts.voice_available(voice):
+        raise HTTPException(status_code=400, detail=f"The voice '{voice}' isn't installed on this server")
+    problem = tts.style_problem(voice, style)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
 
+    level = difficulty.current(db, user)
     conversation = Conversation(
         user_id=user.id,
         scenario=scenario,
         style=style,
         voice=voice,
+        focus=focus or None,
+        difficulty=level["tier"],
     )
     db.add(conversation)
     db.commit()
     db.refresh(conversation)
+    background_tasks.add_task(tts.preload, voice, style)
 
     return {
         "conversation_id": conversation.id,
@@ -99,17 +223,22 @@ def start_conversation(
         "scenario": scenario,
         "style": style,
         "voice": voice,
+        "focus": conversation.focus,
+        "difficulty": {"tier": level["tier"], "label": level["label"]},
     }
 
 
 @router.post("/{conversation_id}/end")
 def end_conversation(
     conversation_id: str,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Closes a session so history has a real duration and completion state.
+    Closes a session so history has a real duration and completion state, and
+    starts building its report in the background (it first waits for the last
+    turn's analysis to finish, so the final mistakes are in the score).
     Idempotent — ending an already-ended session returns the existing values.
     """
     conversation = _owned_conversation(conversation_id, user, db)
@@ -119,6 +248,7 @@ def end_conversation(
         conversation.is_complete = True
         db.commit()
         db.refresh(conversation)
+        background_tasks.add_task(reports.generate_report_safely, conversation.id)
 
     return {
         "conversation_id": conversation.id,
@@ -127,163 +257,57 @@ def end_conversation(
     }
 
 
-# ── Core Voice Loop (batch) ────────────────────────────────────────────────────
-
-@router.post("/message")
-async def send_message(
-    conversation_id: str = Form(...),
-    audio_file: UploadFile = File(...),
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """
-    Batch version: waits for full LLM reply and full TTS before returning.
-    Kept as a backward-compatible fallback — use /message-stream for lower latency.
-
-    IMPORTANT: stt.transcribe(), llm.chat(), and tts.synthesize() are all
-    synchronous blocking calls. We use asyncio.to_thread() to run each in the
-    thread pool, keeping the event loop free.
-    """
-    t_total = time.perf_counter()
-    timings: dict[str, float] = {}
-
-    # ── Fetch conversation (404s unless the caller owns it) ───────────────────
-    conversation = _owned_conversation(conversation_id, user, db)
-
-    # ── Save audio to temp file ───────────────────────────────────────────────
-    suffix = Path(audio_file.filename or "audio.wav").suffix or ".wav"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        content = await audio_file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
-
-    # ── STT ───────────────────────────────────────────────────────────────────
-    try:
-        stt_result = await asyncio.to_thread(stt.transcribe, tmp_path)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"STT error: {e}")
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
-
-    timings["stt_ms"] = stt_result["latency_ms"]
-    transcript = stt_result["text"].strip()
-
-    if not transcript:
-        return {"error": "No speech detected in audio", "timings": timings}
-
-    # ── Save user message to DB ───────────────────────────────────────────────
-    user_msg = Message(
-        conversation_id=conversation_id,
-        role="user",
-        content=transcript,
-        audio_duration_seconds=stt_result["duration"],
-        word_timestamps_json=str(stt_result["words"]),
-        whisper_avg_logprob=stt_result["avg_logprob"],
-    )
-    db.add(user_msg)
-    db.commit()
-
-    # ── Build LLM context ─────────────────────────────────────────────────────
-    history_rows = (
-        db.query(Message)
-        .filter_by(conversation_id=conversation_id)
-        .order_by(Message.created_at.asc())
-        .limit(10)
-        .all()
-    )
-    history = [{"role": m.role, "content": m.content} for m in history_rows]
-
-    system_prompt = build_system_prompt(
-        scenario=conversation.scenario,
-        style=conversation.style,
-    )
-    messages = llm.build_messages(system_prompt, history)
-
-    # ── LLM ───────────────────────────────────────────────────────────────────
-    t0 = time.perf_counter()
-    try:
-        reply_text = await asyncio.to_thread(llm.chat, messages, None, 0.8, 150)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"LLM error: {e}")
-    timings["llm_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-
-    # ── Save assistant message to DB ──────────────────────────────────────────
-    assistant_msg = Message(
-        conversation_id=conversation_id,
-        role="assistant",
-        content=reply_text,
-    )
-    db.add(assistant_msg)
-    db.commit()
-
-    # ── TTS ───────────────────────────────────────────────────────────────────
-    try:
-        tts_result = await asyncio.to_thread(tts.synthesize, reply_text, conversation.voice)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"TTS error: {e}")
-    timings["tts_ms"] = tts_result["latency_ms"]
-
-    # ── Encode audio for JSON transport ───────────────────────────────────────
-    audio_b64 = base64.b64encode(tts_result["audio_bytes"]).decode("utf-8")
-    timings["total_ms"] = round((time.perf_counter() - t_total) * 1000, 1)
-
-    return {
-        "transcript": transcript,
-        "reply_text": reply_text,
-        "reply_audio_b64": audio_b64,
-        "timings": timings,
-    }
-
-
-# ── Streaming Voice Loop ──────────────────────────────────────────────────────
+# ── The voice loop ────────────────────────────────────────────────────────────
 
 @router.post("/message-stream")
 async def send_message_stream(
     conversation_id: str = Form(...),
     audio_file: UploadFile = File(...),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Streaming version of /message. Returns NDJSON lines:
-        {"type": "transcript", "text": "..."}
-        {"type": "audio_chunk", "index": N, "text": "...", "data": "<b64 WAV>", "tts_ms": N}
-        {"type": "done", "full_reply": "...", "timings": {...}}
-        {"type": "error", "message": "..."}
-
-    CRITICAL: Every code path MUST end with a {"type": "done"} line.
-    Without it the HTTP chunked stream never sends the final 0-byte terminator,
-    and the client raises ChunkedEncodingError.
-
-    The outer generate() wraps _stream() in a try/except so that even completely
-    unexpected exceptions produce a clean done line rather than dropping the
-    TCP connection mid-stream.
+    One spoken turn: audio in, then the transcript and the coach's reply (as
+    sentence-sized audio chunks) streamed back as NDJSON — see the module
+    docstring for the event types. The grammar/vocab analysis of the user's
+    words starts as soon as the transcript is saved and runs concurrently with
+    the spoken reply.
     """
     t_total = time.perf_counter()
-    timings: dict = {}
+    enforce("voice:user", user.id, VOICE_TURN_PER_USER, "You're sending turns too quickly. Take a breath and try again.")
 
-    # ── Fetch conversation (404s unless the caller owns it) ───────────────────
     conversation = _owned_conversation(conversation_id, user, db)
+    if conversation.is_complete:
+        raise HTTPException(status_code=409, detail="This session has ended. Start a new session to keep practising.")
 
-    # ── Save audio to temp file ───────────────────────────────────────────────
-    suffix = Path(audio_file.filename or "audio.wav").suffix or ".wav"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(await audio_file.read())
-        tmp_path = tmp.name
+    # Plain values for the generator below: the ORM objects belong to a session
+    # that we release right now. A turn takes several seconds; holding a pooled
+    # connection through all of it would let ~15 simultaneous turns exhaust
+    # the pool.
+    user_id = user.id
+    voice, style, scenario = conversation.voice, conversation.style, conversation.scenario
+    level = conversation.difficulty      # None for sessions from before difficulty existed: no instruction
+    focus_text = taxonomy.focus_for(*parsed) if (parsed := taxonomy.parse_focus(conversation.focus)) else None
+    db.close()
 
-    # ─────────────────────────────────────────────────────────────────────────
+    tmp_path, size = await _save_upload(audio_file)
+
     async def _stream():
-        """
-        Inner generator — all real logic lives here.
-        generate() wraps this so any exception still produces a clean done line.
-        """
+        timings: dict = {}
+
         # ── STT ───────────────────────────────────────────────────────────────
         try:
+            if size == 0:
+                raise stt.AudioDecodeError("No audio was received. Please try again.")
             stt_result = await asyncio.to_thread(stt.transcribe, tmp_path)
-        except Exception as e:
-            yield json.dumps({"type": "error", "message": f"STT error: {e}"}) + "\n"
-            yield json.dumps({"type": "done", "full_reply": "", "timings": timings}) + "\n"
+        except (stt.AudioDecodeError, stt.STTUnavailableError) as exc:
+            yield _event(type="error", message=str(exc))
+            yield _event(type="done", full_reply="", timings=timings)
+            return
+        except Exception:
+            logger.exception("Unexpected STT failure")
+            yield _event(type="error", message="Speech recognition failed. Please try again.")
+            yield _event(type="done", full_reply="", timings=timings)
             return
         finally:
             Path(tmp_path).unlink(missing_ok=True)
@@ -292,182 +316,107 @@ async def send_message_stream(
         transcript = stt_result["text"].strip()
 
         if not transcript:
-            yield json.dumps({"type": "error", "message": "No speech detected"}) + "\n"
-            yield json.dumps({"type": "done", "full_reply": "", "timings": timings}) + "\n"
+            yield _event(type="error", message="No speech detected")
+            yield _event(type="done", full_reply="", timings=timings)
+            return
+        if stt_result["duration"] > MAX_AUDIO_SECONDS:
+            yield _event(type="error", message=f"That recording is too long (limit {MAX_AUDIO_SECONDS} seconds). Try a shorter answer.")
+            yield _event(type="done", full_reply="", timings=timings)
             return
 
-        # ── Send transcript immediately ───────────────────────────────────────
-        yield json.dumps({"type": "transcript", "text": transcript}) + "\n"
+        # ── How they spoke (rate, pauses, fillers), saved with the turn ───────
+        metrics = speech_metrics.analyse(stt_result)
 
-        # ── Save user message to DB ───────────────────────────────────────────
-        user_msg = Message(
-            conversation_id=conversation_id,
-            role="user",
-            content=transcript,
-            audio_duration_seconds=stt_result["duration"],
-            word_timestamps_json=str(stt_result["words"]),
-            whisper_avg_logprob=stt_result["avg_logprob"],
+        # ── Save the turn, then send the transcript immediately ───────────────
+        message_id = await asyncio.to_thread(
+            turns.persist_user_turn, conversation_id, user_id, transcript, stt_result, metrics
         )
-        db.add(user_msg)
-        db.commit()
+        yield _event(type="transcript", text=transcript, message_id=message_id)
+        yield _event(type="metrics", message_id=message_id, **speech_metrics.to_payload(metrics))
 
-        # ── Spawn async grammar/vocab analysis ────────────────────────────────
-        background_tasks.add_task(
-            run_async_analysis,
-            transcript=transcript,
-            message_id=user_msg.id,
-            conversation_id=conversation_id,
-            user_id=conversation.user_id,
-            style=conversation.style,
+        # ── Grammar/vocab analysis starts now, in parallel with the reply ─────
+        if turns.should_analyse(transcript):
+            background.spawn(
+                run_async_analysis,
+                transcript=transcript,
+                message_id=message_id,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                style=style,
+            )
+
+        # ── LLM streaming + sentence-chunked TTS ──────────────────────────────
+        history = await asyncio.to_thread(turns.load_context, conversation_id)
+        messages = llm.build_messages(
+            build_system_prompt(scenario=scenario, style=style, difficulty=level, focus=focus_text), history
         )
 
-        # ── Build LLM context ─────────────────────────────────────────────────
-        history_rows = (
-            db.query(Message)
-            .filter_by(conversation_id=conversation_id)
-            .order_by(Message.created_at.asc())
-            .limit(10)
-            .all()
-        )
-        history = [{"role": m.role, "content": m.content} for m in history_rows]
-        system_prompt = build_system_prompt(
-            scenario=conversation.scenario,
-            style=conversation.style,
-        )
-        messages_list = llm.build_messages(system_prompt, history)
-
-        # ── LLM streaming + sentence-chunked TTS ─────────────────────────────
         t_llm_start = time.perf_counter()
         timings["llm_ttfs_ms"] = None
-
-        token_buffer = ""
-        full_reply_parts: list[str] = []
+        timings["first_audio_ms"] = None
+        reply_parts: list[str] = []
         chunk_index = 0
-        llm_error: str | None = None
+        buffer = ""
+        llm_failed = False
 
-        # Bridge sync LLM generator → async via a thread + Queue
-        token_queue: queue_module.Queue = queue_module.Queue()
-        SENTINEL = object()
-
-        def stream_tokens():
-            try:
-                for token in llm.chat_stream(messages_list, max_tokens=400):
-                    token_queue.put(token)
-            except Exception as exc:
-                token_queue.put(Exception(f"LLM error: {exc}"))
-            finally:
-                token_queue.put(SENTINEL)
-
-        thread = threading.Thread(target=stream_tokens, daemon=True)
-        thread.start()
-
-        # Drain tokens
-        while True:
-            try:
-                item = await asyncio.to_thread(token_queue.get, True, 30.0)
-            except queue_module.Empty:
-                break  # timeout — treat as end of stream
-
-            if item is SENTINEL:
-                break
-
-            if isinstance(item, Exception):
-                llm_error = str(item)
-                break
-
-            token_buffer += str(item)
-            sentences, token_buffer = tts.split_sentences(token_buffer)
-
-            for sentence in sentences:
-                # Record time to first sentence
-                if timings["llm_ttfs_ms"] is None:
-                    timings["llm_ttfs_ms"] = round(
-                        (time.perf_counter() - t_llm_start) * 1000, 1
-                    )
-
-                # Synthesize sentence
-                t_tts = time.perf_counter()
-                try:
-                    wav_bytes = await asyncio.to_thread(
-                        tts.synthesize_text, sentence, conversation.voice
-                    )
-                except Exception as tts_e:
-                    print(f"[TTS] Skipping sentence: {tts_e}")
-                    full_reply_parts.append(sentence)
-                    continue
-
-                tts_ms = round((time.perf_counter() - t_tts) * 1000, 1)
-                audio_b64 = base64.b64encode(wav_bytes).decode("utf-8")
-                full_reply_parts.append(sentence)
-
-                yield json.dumps({
-                    "type": "audio_chunk",
-                    "index": chunk_index,
-                    "text": sentence,
-                    "data": audio_b64,
-                    "tts_ms": tts_ms,
-                }) + "\n"
-                chunk_index += 1
-
-        # Report LLM error cleanly and exit
-        if llm_error:
-            yield json.dumps({"type": "error", "message": llm_error}) + "\n"
-            timings["total_ms"] = round((time.perf_counter() - t_total) * 1000, 1)
-            yield json.dumps({"type": "done", "full_reply": "", "timings": timings}) + "\n"
-            return
-
-        # Flush remaining buffer (sentence without terminal punctuation)
-        if token_buffer.strip() and len(token_buffer.strip()) >= 3:
-            flush_text = token_buffer.strip()
-            t_tts_flush = time.perf_counter()
-
-            # Set llm_ttfs_ms NOW — before TTS — so it's always captured even on failure
+        async def speak(sentence: str) -> list[str]:
+            """Synthesizes one sentence -> the events to emit (a chunk, or a warning)."""
+            nonlocal chunk_index
             if timings["llm_ttfs_ms"] is None:
-                timings["llm_ttfs_ms"] = round(
-                    (time.perf_counter() - t_llm_start) * 1000, 1
-                )
-
+                timings["llm_ttfs_ms"] = round((time.perf_counter() - t_llm_start) * 1000, 1)
+            reply_parts.append(sentence)
+            t_tts = time.perf_counter()
             try:
-                wav_bytes = await asyncio.to_thread(
-                    tts.synthesize_text, flush_text, conversation.voice
-                )
-                tts_ms = round((time.perf_counter() - t_tts_flush) * 1000, 1)
-                audio_b64 = base64.b64encode(wav_bytes).decode("utf-8")
-                full_reply_parts.append(flush_text)
-                yield json.dumps({
-                    "type": "audio_chunk",
-                    "index": chunk_index,
-                    "text": flush_text,
-                    "data": audio_b64,
-                    "tts_ms": tts_ms,
-                }) + "\n"
-            except Exception as tts_e:
-                # Surface TTS failure to client (was silently going to server logs only)
-                err_msg = f"TTS failed for flush '{flush_text[:30]}': {tts_e}"
-                print(f"[TTS] {err_msg}")
-                yield json.dumps({"type": "error", "message": err_msg}) + "\n"
-                full_reply_parts.append(flush_text)
-
-        # ── Save assistant message to DB ──────────────────────────────────────
-        full_reply = " ".join(full_reply_parts)
-        if full_reply:
-            assistant_msg = Message(
-                conversation_id=conversation_id,
-                role="assistant",
-                content=full_reply,
+                wav_bytes = await asyncio.to_thread(tts.synthesize_text, sentence, voice, style)
+            except Exception:
+                logger.exception("TTS failed for a sentence (voice=%s)", voice)
+                return [_event(type="warning", message="Part of the reply couldn't be spoken, but the text is shown.")]
+            if timings["first_audio_ms"] is None:
+                timings["first_audio_ms"] = round((time.perf_counter() - t_total) * 1000, 1)
+            event = _event(
+                type="audio_chunk",
+                index=chunk_index,
+                text=sentence,
+                data=base64.b64encode(wav_bytes).decode("utf-8"),
+                tts_ms=round((time.perf_counter() - t_tts) * 1000, 1),
             )
-            db.add(assistant_msg)
-            db.commit()
+            chunk_index += 1
+            return [event]
+
+        cancel = threading.Event()
+        try:
+            async for token in _llm_tokens(messages, cancel):
+                buffer += token
+                # The first chunk is the one the learner waits for in silence, so it
+                # is allowed to be short; later chunks stay longer for better prosody.
+                min_chars = tts.FIRST_CHUNK_MIN_CHARS if not reply_parts else tts.MIN_CHARS
+                sentences, buffer = tts.split_sentences(buffer, min_chars=min_chars)
+                for sentence in sentences:
+                    for event in await speak(sentence):
+                        yield event
+            # Flush the tail (a reply that doesn't end in terminal punctuation)
+            if len(buffer.strip()) >= 3:
+                for event in await speak(buffer.strip()):
+                    yield event
+        except Exception as exc:
+            llm_failed = True
+            if llm.is_rate_limited(exc):
+                logger.warning("The LLM provider is rate-limiting us; a turn got no reply")
+                yield _event(type="error", message="The coach is very busy right now. Please try again in a few seconds.")
+            else:
+                logger.exception("LLM streaming failed")
+                yield _event(type="error", message="The coach couldn't respond right now. Please try again.")
+
+        # ── Save what was actually said, then finish ──────────────────────────
+        full_reply = " ".join(reply_parts)
+        if full_reply:
+            await asyncio.to_thread(turns.persist_assistant_reply, conversation_id, full_reply)
+        elif not llm_failed:
+            yield _event(type="error", message="The coach didn't reply. Please try again.")
 
         timings["total_ms"] = round((time.perf_counter() - t_total) * 1000, 1)
-        yield json.dumps({
-            "type": "done",
-            "full_reply": full_reply,
-            "timings": timings,
-        }) + "\n"
+        yield _event(type="done", full_reply=full_reply, timings=timings)
 
-
-    # ─────────────────────────────────────────────────────────────────────────
     async def generate():
         """
         Safety wrapper: catches any exception that escapes _stream() and
@@ -477,8 +426,15 @@ async def send_message_stream(
         try:
             async for chunk in _stream():
                 yield chunk
-        except Exception as exc:
-            yield json.dumps({"type": "error", "message": f"Server error: {exc}"}) + "\n"
-            yield json.dumps({"type": "done", "full_reply": "", "timings": timings}) + "\n"
+        except Exception:
+            logger.exception("Voice stream failed unexpectedly")
+            yield _event(type="error", message="Something went wrong on our side. Please try again.")
+            yield _event(type="done", full_reply="", timings={})
 
-    return StreamingResponse(generate(), media_type="application/x-ndjson")
+    # Safety net: _stream() deletes the upload itself, but if the client drops
+    # before the first chunk is read the generator never runs.
+    return StreamingResponse(
+        generate(),
+        media_type="application/x-ndjson",
+        background=BackgroundTask(lambda: Path(tmp_path).unlink(missing_ok=True)),
+    )
